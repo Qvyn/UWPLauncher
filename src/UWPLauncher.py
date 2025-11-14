@@ -4,6 +4,35 @@
 # It registers each helper module in sys.modules under its original name,
 # then executes the main script at top-level.
 import sys, types
+import base64
+
+# Simple local obfuscation for Steam API key in steam.json.
+# NOTE: This is *not* strong cryptography. It only prevents casual snooping
+# (e.g. somebody opening the file in Notepad). Anyone with this file and the
+# UWPLauncher executable could in theory reverse it.
+_STEAM_SECRET = b"UWPLauncherSteamKey"
+
+def _steam_encrypt(plaintext: str) -> str:
+    if not plaintext:
+        return ""
+    data = plaintext.encode("utf-8", errors="ignore")
+    key = _STEAM_SECRET
+    out = bytes(b ^ key[i % len(key)] for i, b in enumerate(data))
+    return base64.b64encode(out).decode("ascii", errors="ignore")
+
+def _steam_decrypt(ciphertext: str) -> str:
+    if not ciphertext:
+        return ""
+    try:
+        raw = base64.b64decode(ciphertext.encode("ascii", errors="ignore"))
+    except Exception:
+        return ""
+    key = _STEAM_SECRET
+    out = bytes(b ^ key[i % len(key)] for i, b in enumerate(raw))
+    try:
+        return out.decode("utf-8")
+    except Exception:
+        return ""
 
 # Optional: faux "xbl" package so imports like "from xbl import ..." work
 if "xbl" not in sys.modules:
@@ -1834,7 +1863,9 @@ def NONUWP_sync_steam_library_dialog(self):
         try:
             cached = json.loads(fcfg.read_text(encoding="utf-8"))
             steamid = str(cached.get("steamid",""))
-            api_key = str(cached.get("api_key",""))
+            enc = str(cached.get("api_key_enc",""))
+            if enc:
+                api_key = _steam_decrypt(enc)
         except Exception:
             pass
         dlg = QtWidgets.QDialog(self); dlg.setWindowTitle("Steam credentials")
@@ -1846,8 +1877,17 @@ def NONUWP_sync_steam_library_dialog(self):
         btns.accepted.connect(dlg.accept); btns.rejected.connect(dlg.reject)
         if dlg.exec() != QtWidgets.QDialog.DialogCode.Accepted: return
         steamid = e_id.text().strip(); api_key = e_key.text().strip()
-        try: fcfg.write_text(json.dumps({"steamid":steamid, "api_key":api_key}, indent=2), encoding="utf-8")
-        except Exception: pass
+        obj = {"steamid": steamid}
+        try:
+            enc = _steam_encrypt(api_key)
+            if enc:
+                obj["api_key_enc"] = enc
+        except Exception:
+            pass
+        try:
+            fcfg.write_text(json.dumps(obj, indent=2), encoding="utf-8")
+        except Exception:
+            pass
     try:
         if steamid and api_key:
             return f(steamid=steamid, api_key=api_key)
