@@ -1,0 +1,25 @@
+✅ UWPLauncher Patch Notes
+
+🎮 1. Added Steam Login Status Indicator (LED Light)
+
+- A new Steam status LED now appears under the activity log:
+
+🟢 Green = Steam login detected
+🔴 Red = Not signed in / missing Steam credentials
+
+📝 2. Added EXE Path Support for Non-UWP Games
+
+- Games you add manually (like Steam/GOG/local titles) can now store a full executable path.
+- A new field was added to the “Edit Game” window:
+- EXE Path (optional)
+
+🔄 3. Cleaned Up Steam Sign-In Feedback
+
+- The old popup "Sign-in initiated" was replaced
+
+🛠 4. Stability Tweaks
+- Streamlined internal Steam status checks
+- Ensured missing files don’t crash the UI
+- Improved error handling around Steam sync
+- Made the UI more consistent
+- Safer behavior when launching games

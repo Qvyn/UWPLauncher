@@ -7,6 +7,9 @@ import sys, types
 import base64
 
 # Simple local obfuscation for Steam API key in steam.json.
+# NOTE: This is *not* strong cryptography. It only prevents casual snooping
+# (e.g. somebody opening the file in Notepad). Anyone with this file and the
+# UWPLauncher executable could in theory reverse it.
 _STEAM_SECRET = b"UWPLauncherSteamKey"
 
 def _steam_encrypt(plaintext: str) -> str:
@@ -1136,6 +1139,7 @@ class GameEditor(QtWidgets.QDialog):
         self.name = QtWidgets.QLineEdit(self.data.get("name",""))
         self.aumid = QtWidgets.QLineEdit(self.data.get("aumid",""))
         self.exe = QtWidgets.QLineEdit(self.data.get("exe_name",""))
+        self.exe_path = QtWidgets.QLineEdit(self.data.get("exe",""))
         self.flags = QtWidgets.QLineEdit(" ".join(self.data.get("flags", [])))
         self.mask = QtWidgets.QLineEdit(self.data.get("mask_hex",""))
 
@@ -1149,6 +1153,7 @@ class GameEditor(QtWidgets.QDialog):
         form.addRow("Name", self.name)
         form.addRow("AUMID / UWP ID", self.aumid)
         form.addRow("Game EXE (process)", self.exe)
+        form.addRow("EXE Path (optional)", self.exe_path)
         form.addRow("Flags (space-separated)", self.flags)
         form.addRow("Affinity Mask (HEX)", self.mask)
         form.addRow("Use Flags", self.chk_use_flags)
@@ -1165,6 +1170,7 @@ class GameEditor(QtWidgets.QDialog):
             "name": self.name.text().strip(),
             "aumid": self.aumid.text().strip(),
             "exe_name": self.exe.text().strip(),
+            "exe": self.exe_path.text().strip(),
             "flags": [f for f in self.flags.text().strip().split() if f],
             "mask_hex": self.mask.text().strip(),
             "use_flags": self.chk_use_flags.isChecked(),
@@ -1574,9 +1580,26 @@ class Main(QtWidgets.QWidget):
         self.log.setReadOnly(True)
         layout.addWidget(self.log, 1)
 
+        # Steam status (LED + label)
+        status_row = QtWidgets.QHBoxLayout()
+        self.lbl_steam_led = QtWidgets.QLabel()
+        self.lbl_steam_led.setFixedSize(14, 14)
+        # default color; will be updated by _update_steam_led()
+        self.lbl_steam_led.setStyleSheet("border-radius: 7px; background-color: #c62828;")
+        status_row.addWidget(self.lbl_steam_led)
+        status_row.addWidget(QtWidgets.QLabel("Steam"))
+        status_row.addStretch(1)
+        layout.addLayout(status_row)
+
         # Data
         self.games = load_games()
         self._refresh_selector()
+
+        # Initialize Steam LED based on current config/steam.json (if any)
+        try:
+            self._update_steam_led()
+        except Exception:
+            pass
 
         # Wire
         self.selector.currentIndexChanged.connect(self._on_sel_change)
@@ -1601,6 +1624,40 @@ class Main(QtWidgets.QWidget):
                     # ---------- helpers ----------
     def _append(self, s:str):
         self.log.append(s)
+
+    def _update_steam_led(self):
+        """Update the Steam LED indicator based on config/steam.json.
+        Green = we have a steamid + encrypted API key.
+        Red   = missing or invalid credentials.
+        """
+        try:
+            from pathlib import Path as _Path
+            import json as _json
+
+            ok = False
+            cfg = _Path("config") / "steam.json"
+            if cfg.is_file():
+                try:
+                    data = _json.loads(cfg.read_text(encoding="utf-8"))
+                    steamid = str(data.get("steamid", "")).strip()
+                    enc = str(data.get("api_key_enc", "")).strip()
+                    ok = bool(steamid and enc)
+                except Exception:
+                    ok = False
+
+            if hasattr(self, "lbl_steam_led"):
+                color = "#00c853" if ok else "#c62828"
+                self.lbl_steam_led.setStyleSheet(
+                    f"border-radius: 7px; background-color: {color};"
+                )
+        except Exception:
+            try:
+                if hasattr(self, "lbl_steam_led"):
+                    self.lbl_steam_led.setStyleSheet(
+                        "border-radius: 7px; background-color: #c62828;"
+                    )
+            except Exception:
+                pass
 
     def _refresh_selector(self):
         self.selector.blockSignals(True)
@@ -1936,8 +1993,21 @@ def _NONUWP_act_sign_in(self):
     from PyQt6 import QtWidgets
     try:
         f = getattr(_NONUWP_module(), "steam_openid_login", None)
-        if callable(f): f()
-        QtWidgets.QMessageBox.information(self, "Steam Sign-In", "Sign-in initiated.")
+        if callable(f):
+            f()
+
+        # After attempting sign-in, refresh the Steam LED indicator if available
+        try:
+            if hasattr(self, "_update_steam_led"):
+                self._update_steam_led()
+        except Exception:
+            pass
+
+        QtWidgets.QMessageBox.information(
+            self,
+            "Steam Sign-In",
+            "Steam sign-in has been started in your browser."
+        )
     except Exception as e:
         QtWidgets.QMessageBox.warning(self, "Steam Sign-In", str(e))
 
