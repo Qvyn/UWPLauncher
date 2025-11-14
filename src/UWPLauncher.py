@@ -7,9 +7,6 @@ import sys, types
 import base64
 
 # Simple local obfuscation for Steam API key in steam.json.
-# NOTE: This is *not* strong cryptography. It only prevents casual snooping
-# (e.g. somebody opening the file in Notepad). Anyone with this file and the
-# UWPLauncher executable could in theory reverse it.
 _STEAM_SECRET = b"UWPLauncherSteamKey"
 
 def _steam_encrypt(plaintext: str) -> str:
