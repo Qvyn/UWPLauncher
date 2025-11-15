@@ -34,6 +34,106 @@ def _steam_decrypt(ciphertext: str) -> str:
     except Exception:
         return ""
 
+
+# --- ADD-ONLY: Steam artwork helpers (auto-fetch, cached once) ---
+_STEAM_ARTWORK_NEG_CACHE = set()
+
+def _steam_artwork_path(appid: str):
+    """Return Path for cached Steam artwork: config/artwork/<appid>.jpg"""
+    try:
+        # Use the same CONFIG_DIR/BASE_DIR logic as the rest of the launcher.
+        # ARTWORK_DIR is created at startup alongside CONFIG_DIR.
+        p = os.path.join(ARTWORK_DIR, f"{appid}.jpg")
+        return p
+    except Exception:
+        # Fallback: relative file name if anything goes wrong.
+        return os.path.join("config", "artwork", f"{appid}.jpg")
+
+
+def _steam_artwork_ensure_cached(appid: str):
+    """
+    Best-effort download of Steam library artwork for a given appid.
+    - Downloads only once per appid (cached on disk).
+    - Safe to fail silently if offline or Steam has no image.
+    Also prints lightweight debug info to stdout so the user can see what happens.
+    """
+    if not appid:
+        return
+    try:
+        from pathlib import Path as _Path
+        import requests
+
+        appid = str(appid).strip()
+        if not appid:
+            return
+
+        # If we've already tried and failed to fetch this appid's artwork,
+        # don't hammer the CDN again. This keeps UI operations like the
+        # library refresh and slider from triggering repeated 404 fetches.
+        try:
+            if appid in _STEAM_ARTWORK_NEG_CACHE:
+                return
+        except Exception:
+            pass
+
+        p = _steam_artwork_path(appid)
+        # If we already have artwork, do nothing (download-once semantics)
+        try:
+            if hasattr(p, "is_file"):
+                if p.is_file():
+                    print(f"[ART] already cached: {p}")
+                    return
+            else:
+                import os as _os
+                if _os.path.isfile(p):
+                    print(f"[ART] already cached (str path): {p}")
+                    return
+        except Exception:
+            pass
+
+        # Try a couple of known Steam CDN patterns.
+        urls = [
+            f"https://steamcdn-a.akamaihd.net/steam/apps/{appid}/library_600x900.jpg",
+            f"https://steamcdn-a.akamaihd.net/steam/apps/{appid}/header.jpg",
+        ]
+
+        for url in urls:
+            try:
+                print(f"[ART] fetching {url} ...")
+                resp = requests.get(url, timeout=2)
+            except Exception as e:
+                print(f"[ART] request error for appid {appid}: {e}")
+                continue
+            status = getattr(resp, "status_code", None)
+            if status != 200:
+                print(f"[ART] HTTP {status} for appid {appid} at {url}")
+                continue
+            content = getattr(resp, "content", None)
+            if not content:
+                print(f"[ART] empty content for appid {appid} at {url}")
+                continue
+
+            # Write bytes to disk (best-effort)
+            try:
+                if hasattr(p, "write_bytes"):
+                    p.write_bytes(content)
+                else:
+                    with open(p, "wb") as f:
+                        f.write(content)
+                print(f"[ART] saved artwork for appid {appid} -> {p}")
+                break
+            except Exception as e:
+                print(f"[ART] failed to write artwork for appid {appid}: {e}")
+                # try next URL if any
+                continue
+    except Exception as e:
+        # Completely best-effort; never crash the launcher over artwork
+        print(f"[ART] fatal error for appid {appid}: {e}")
+        pass
+
+
+
+
 # Optional: faux "xbl" package so imports like "from xbl import ..." work
 if "xbl" not in sys.modules:
     xbl_pkg = types.ModuleType("xbl")
@@ -289,6 +389,207 @@ except Exception:
 
 import sys, os, json
 from pathlib import Path
+
+# === App version & GitHub update config (ADD-ONLY) ===
+# Bump APP_VERSION whenever you ship a new build.
+APP_VERSION = "2.1.0"
+
+# GitHub repo for UWPLauncher updates.
+GITHUB_REPO = "Qvyn/UWPLauncher"
+GITHUB_LATEST_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+
+
+def _parse_version(v: str):
+    """
+    Turn '2.1.0' into (2, 1, 0). Non-numeric parts are ignored.
+    """
+    parts = []
+    for piece in str(v).strip().split("."):
+        try:
+            parts.append(int(piece))
+        except ValueError:
+            # ignore non-numeric parts like a leading "v"
+            continue
+    return tuple(parts or [0])
+
+
+def _version_is_newer(latest: str, current: str) -> bool:
+    """
+    Returns True if 'latest' > 'current' using simple x.y.z comparison.
+    """
+    return _parse_version(latest) > _parse_version(current)
+
+
+def _check_for_updates(window):
+    """
+    Global helper to check GitHub for the latest UWPLauncher release and
+    optionally download the newest EXE into the launcher folder.
+    """
+    from PyQt6 import QtWidgets
+    from pathlib import Path as _Path
+    import requests, webbrowser, os
+
+    try:
+        resp = requests.get(GITHUB_LATEST_URL, timeout=5)
+    except Exception as e:
+        QtWidgets.QMessageBox.warning(
+            window,
+            "Update check failed",
+            f"Could not contact GitHub:\n{e}"
+        )
+        return
+
+    if resp.status_code != 200:
+        QtWidgets.QMessageBox.warning(
+            window,
+            "Update check failed",
+            f"GitHub API returned status {resp.status_code}."
+        )
+        return
+
+    try:
+        data = resp.json()
+    except Exception as e:
+        QtWidgets.QMessageBox.warning(
+            window,
+            "Update check failed",
+            f"Could not read response:\n{e}"
+        )
+        return
+
+    tag = (data.get("tag_name") or "").lstrip("v").strip()
+    latest_ver = tag or ""
+    if not latest_ver:
+        QtWidgets.QMessageBox.warning(
+            window,
+            "Update check failed",
+            "Could not read latest version info from GitHub."
+        )
+        return
+
+    if not _version_is_newer(latest_ver, APP_VERSION):
+        QtWidgets.QMessageBox.information(
+            window,
+            "UWPLauncher",
+            f"You are already on the latest version ({APP_VERSION})."
+        )
+        return
+
+    assets = data.get("assets") or []
+    release_url = data.get("html_url") or ""
+    asset_url = ""
+    asset_name = ""
+
+    if assets:
+        asset = assets[0]
+        asset_url = asset.get("browser_download_url") or ""
+        asset_name = asset.get("name") or f"UWPLauncher_{latest_ver}.exe"
+
+    if not asset_url:
+        # Fallback: no asset found; just open the release page.
+        msg = (
+            f"A newer version of UWPLauncher is available.\n\n"
+            f"Current version: {APP_VERSION}\n"
+            f"Latest version:  {latest_ver}\n\n"
+            f"No downloadable asset was found automatically.\n"
+            f"Open the GitHub release page instead?"
+        )
+        btn = QtWidgets.QMessageBox.question(
+            window,
+            "Update available",
+            msg,
+            QtWidgets.QMessageBox.StandardButton.Yes
+            | QtWidgets.QMessageBox.StandardButton.No,
+        )
+        if btn == QtWidgets.QMessageBox.StandardButton.Yes and release_url:
+            try:
+                webbrowser.open(release_url)
+            except Exception:
+                pass
+        return
+
+    # Ask the user if they want to download the new EXE now.
+    msg = (
+        f"A newer version of UWPLauncher is available.\n\n"
+        f"Current version: {APP_VERSION}\n"
+        f"Latest version:  {latest_ver}\n\n"
+        f"Do you want to download the update now?"
+    )
+    btn = QtWidgets.QMessageBox.question(
+        window,
+        "Update available",
+        msg,
+        QtWidgets.QMessageBox.StandardButton.Yes
+        | QtWidgets.QMessageBox.StandardButton.No,
+    )
+    if btn != QtWidgets.QMessageBox.StandardButton.Yes:
+        return
+
+    target_dir = _app_root()
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+
+    dest = _Path(target_dir) / asset_name
+
+    # If a file with the same name already exists, confirm overwrite.
+    if dest.exists():
+        btn = QtWidgets.QMessageBox.question(
+            window,
+            "Overwrite existing file?",
+            f"An update file named '{asset_name}' already exists.\n"
+            f"Overwrite it?",
+            QtWidgets.QMessageBox.StandardButton.Yes
+            | QtWidgets.QMessageBox.StandardButton.No,
+        )
+        if btn != QtWidgets.QMessageBox.StandardButton.Yes:
+            return
+
+    try:
+        with requests.get(asset_url, stream=True, timeout=30) as r:
+            if r.status_code != 200:
+                QtWidgets.QMessageBox.warning(
+                    window,
+                    "Download failed",
+                    f"Download returned status {r.status_code}."
+                )
+                return
+            with open(dest, "wb") as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    if not chunk:
+                        continue
+                    f.write(chunk)
+    except Exception as e:
+        QtWidgets.QMessageBox.warning(
+            window,
+            "Download failed",
+            f"Could not download update:\n{e}"
+        )
+        return
+
+    # Offer to open the folder so the user can run the new EXE.
+    msg = (
+        f"Downloaded the new version to:\n{dest}\n\n"
+        f"Close this app and run the new file to finish updating.\n"
+        f"Open the folder now?"
+    )
+    btn = QtWidgets.QMessageBox.question(
+        window,
+        "Update downloaded",
+        msg,
+        QtWidgets.QMessageBox.StandardButton.Yes
+        | QtWidgets.QMessageBox.StandardButton.No,
+    )
+    if btn == QtWidgets.QMessageBox.StandardButton.Yes:
+        try:
+            os.startfile(str(target_dir))
+        except Exception:
+            try:
+                webbrowser.open(str(target_dir))
+            except Exception:
+                pass
+
 
 def _app_root():
     try:
@@ -784,6 +1085,9 @@ else:
     BASE_DIR = os.path.dirname(__file__)
 
 CONFIG_DIR = os.path.join(BASE_DIR, "config")
+os.makedirs(CONFIG_DIR, exist_ok=True)
+ARTWORK_DIR = os.path.join(CONFIG_DIR, "artwork")
+os.makedirs(ARTWORK_DIR, exist_ok=True)
 try:
     os.makedirs(CONFIG_DIR, exist_ok=True)
 except Exception:
@@ -872,6 +1176,10 @@ def _seed_settings():
         "discord_client_id": DISCORD_CLIENT_ID_DEFAULT,
         "discord_details_tpl": "{name}",
         "discord_state_tpl": "HighPrio={high}  Affinity={aff}  Flags={flags}",
+        # New: opt-in artwork-based background
+        "use_artwork_theme": False,
+        # New: remember game grid cover size
+        "cover_size": 220,
     }
 
 def load_settings():
@@ -1085,7 +1393,41 @@ class UWPSyncDialog(QtWidgets.QDialog):
         self.search = QtWidgets.QLineEdit()
         self.search.setPlaceholderText("Search apps...")
         search_row.addWidget(self.search)
-        self.btn_refresh = QtWidgets.QPushButton("Refresh")
+
+        # Refresh "button" as a custom widget so it matches the rest of the UI.
+        # This is a small clickable frame with an icon + label, instead of a
+        # plain QPushButton.
+        self.btn_refresh = QtWidgets.QFrame()
+        self.btn_refresh.setObjectName("RefreshWidget")
+        btn_layout = QtWidgets.QHBoxLayout(self.btn_refresh)
+        btn_layout.setContentsMargins(8, 4, 8, 4)
+        btn_layout.setSpacing(6)
+
+        lbl_icon = QtWidgets.QLabel("⟳")
+        lbl_icon.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        btn_layout.addWidget(lbl_icon)
+
+        lbl_text = QtWidgets.QLabel("Refresh")
+        btn_layout.addWidget(lbl_text)
+        btn_layout.addStretch(1)
+
+        # Give it a clickable cursor and a subtle border so it feels like a widget.
+        try:
+            self.btn_refresh.setCursor(QtGui.QCursor(QtCore.Qt.CursorShape.PointingHandCursor))
+            self.btn_refresh.setStyleSheet(
+                "#RefreshWidget {"
+                "  border: 1px solid #3c3c3c;"
+                "  border-radius: 6px;"
+                "  background-color: #202020;"
+                "}"
+                "#RefreshWidget:hover {"
+                "  border-color: #4caf50;"
+                "  background-color: #262626;"
+                "}"
+            )
+        except Exception:
+            pass
+
         search_row.addWidget(self.btn_refresh)
         v.addLayout(search_row)
 
@@ -1101,7 +1443,14 @@ class UWPSyncDialog(QtWidgets.QDialog):
         v.addLayout(btn_row)
 
         self.btn_close.clicked.connect(self.close)
-        self.btn_refresh.clicked.connect(self.populate)
+
+        # Make the refresh widget clickable.
+        def _refresh_click(ev):
+            try:
+                self.populate()
+            except Exception:
+                pass
+        self.btn_refresh.mousePressEvent = _refresh_click
         self.search.textChanged.connect(self._apply_filter)
         self.populate()
 
@@ -1160,10 +1509,96 @@ class GameEditor(QtWidgets.QDialog):
         form.addRow("High Priority", self.chk_high)
         form.addRow("Apply Affinity", self.chk_aff)
 
+        # Custom artwork (optional, saved with other artwork)
+        self.custom_art_path = self.data.get("custom_art_path", "")
+        art_row = QtWidgets.QHBoxLayout()
+        self.btn_artwork = QtWidgets.QPushButton("Choose artwork image...")
+        self.lbl_artwork_status = QtWidgets.QLabel(self._artwork_status_text())
+        self.lbl_artwork_status.setStyleSheet("color: gray;")
+        art_row.addWidget(self.btn_artwork)
+        art_row.addWidget(self.lbl_artwork_status, 1)
+
+        # Let the user pick a custom artwork image and copy it into the
+        # launcher artwork folder. This wires the button to the existing
+        # _on_choose_artwork helper below.
+        try:
+            self.btn_artwork.clicked.connect(self._on_choose_artwork)
+        except Exception:
+            pass
+        art_widget = QtWidgets.QWidget()
+        art_widget.setLayout(art_row)
+        form.addRow("Custom artwork", art_widget)
+
         btns = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.StandardButton.Ok | QtWidgets.QDialogButtonBox.StandardButton.Cancel)
+        # (no artwork button in SettingsEditor; handler not needed here)
         btns.accepted.connect(self.accept)
         btns.rejected.connect(self.reject)
         form.addRow(btns)
+
+
+    def _artwork_status_text(self):
+        p = (self.custom_art_path or "").strip()
+        if p:
+            try:
+                import os as _os
+                base = _os.path.basename(p)
+            except Exception:
+                base = p
+            return f"Selected: {base}"
+        return "No custom artwork set"
+
+    def _on_choose_artwork(self):
+        # Let the user pick an image file and copy it into the launcher artwork folder.
+        from PyQt6 import QtWidgets as _QtWidgets
+        try:
+            fname, _ = _QtWidgets.QFileDialog.getOpenFileName(
+                self,
+                "Select artwork image",
+                "",
+                "Images (*.png *.jpg *.jpeg *.bmp *.webp);;All Files (*)",
+            )
+        except Exception:
+            fname = ""
+        if not fname:
+            return
+        try:
+            from pathlib import Path as _Path
+            import shutil
+
+            src = _Path(fname)
+            if not src.is_file():
+                return
+
+            # Target name based on Steam appid if present, else game name
+            base_name = None
+            try:
+                appid = str(self.data.get("appid", "")).strip()
+                if appid:
+                    base_name = f"{appid}{src.suffix.lower() or '.jpg'}"
+            except Exception:
+                base_name = None
+            if not base_name:
+                nm = self.name.text().strip() or "game"
+                safe = "".join(c if c.isalnum() else "_" for c in nm)
+                base_name = f"{safe}{src.suffix.lower() or '.jpg'}"
+
+            # Ensure artwork folder exists and copy there
+            target_dir = ARTWORK_DIR if isinstance(ARTWORK_DIR, str) else str(ARTWORK_DIR)
+            target_dir_path = _Path(target_dir)
+            try:
+                target_dir_path.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
+
+            dst = target_dir_path / base_name
+            shutil.copyfile(src, dst)
+            self.custom_art_path = str(dst)
+            self.lbl_artwork_status.setText(self._artwork_status_text())
+        except Exception as e:
+            try:
+                _QtWidgets.QMessageBox.warning(self, "Artwork", f"Failed to copy artwork:\n{e}")
+            except Exception:
+                print(f"[ART] Failed to copy artwork: {e}")
 
     def get_data(self):
         return {
@@ -1176,6 +1611,7 @@ class GameEditor(QtWidgets.QDialog):
             "use_flags": self.chk_use_flags.isChecked(),
             "high_priority": self.chk_high.isChecked(),
             "apply_affinity": self.chk_aff.isChecked(),
+            "custom_art_path": (self.custom_art_path or "").strip(),
         }
 
 class SettingsEditor(QtWidgets.QDialog):
@@ -1201,7 +1637,13 @@ class SettingsEditor(QtWidgets.QDialog):
         hint.setStyleSheet("color: gray;")
         form.addRow(hint)
 
+        # New: use selected game artwork as full-window background
+        self.chk_artwork_theme = QtWidgets.QCheckBox()
+        self.chk_artwork_theme.setChecked(bool(self.settings.get("use_artwork_theme", False)))
+        form.addRow("Use game artwork for theme", self.chk_artwork_theme)
+
         btns = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.StandardButton.Ok | QtWidgets.QDialogButtonBox.StandardButton.Cancel)
+        # (no artwork button in SettingsEditor; handler not needed here)
         btns.accepted.connect(self.accept)
         btns.rejected.connect(self.reject)
         form.addRow(btns)
@@ -1212,6 +1654,8 @@ class SettingsEditor(QtWidgets.QDialog):
             "discord_client_id": self.client_id.text().strip(),
             "discord_details_tpl": self.details_tpl.text().strip() or "{name}",
             "discord_state_tpl": self.state_tpl.text().strip() or "HighPrio={high}  Affinity={aff}  Flags={flags}",
+            # Persist artwork-driven theme toggle
+            "use_artwork_theme": self.chk_artwork_theme.isChecked(),
         }
 
 # ============= Worker =============
@@ -1453,6 +1897,10 @@ class Main(QtWidgets.QWidget):
         self.setWindowTitle("ReloadMe+ (Games Manager)")
         self.resize(920, 640)
 
+        # Artwork-driven background support
+        self._artwork_bg_path = None
+        self._artwork_bg = None
+
         self.discord = DiscordManager()
         self.settings = load_settings()
         self.discord.configure(self.settings.get("discord_enabled", False), self.settings.get("discord_client_id",""))
@@ -1460,12 +1908,97 @@ class Main(QtWidgets.QWidget):
 
         # Xbox headers will be populated after successful sign-in
         self._xbl_headers = None
-        layout = QtWidgets.QVBoxLayout(self)
+
+        # --- Root layout: sidebar + main content ---
+        root_layout = QtWidgets.QHBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
+
+        # Left sidebar (navigation)
+        sidebar = QtWidgets.QVBoxLayout()
+        sidebar.setContentsMargins(4, 4, 4, 4)
+        sidebar.setSpacing(8)
+
+        # Library / games view
+        self.btn_nav_library = QtWidgets.QToolButton()
+        self.btn_nav_library.setText("🏠")
+        self.btn_nav_library.setToolTip("Library")
+        self.btn_nav_library.setCheckable(True)
+        self.btn_nav_library.setChecked(True)
+        self.btn_nav_library.setAutoRaise(True)
+        sidebar.addWidget(self.btn_nav_library)
+
+        # Friends dock
+        self.btn_nav_friends = QtWidgets.QToolButton()
+        self.btn_nav_friends.setText("👥")
+        self.btn_nav_friends.setToolTip("Friends")
+        self.btn_nav_friends.setAutoRaise(True)
+        sidebar.addWidget(self.btn_nav_friends)
+
+        # Discord presence
+        self.btn_nav_discord = QtWidgets.QToolButton()
+        self.btn_nav_discord.setText("🎮")
+        self.btn_nav_discord.setToolTip("Discord RPC Settings")
+        self.btn_nav_discord.setAutoRaise(True)
+        sidebar.addWidget(self.btn_nav_discord)
+
+        # Xbox sign-in
+        self.btn_nav_xbox = QtWidgets.QToolButton()
+        self.btn_nav_xbox.setText("☁")
+        self.btn_nav_xbox.setToolTip("Xbox Sign-In")
+        self.btn_nav_xbox.setAutoRaise(True)
+        sidebar.addWidget(self.btn_nav_xbox)
+
+        # Xbox profile refresh (gamertag + avatar)
+        self.btn_nav_xbox_profile = QtWidgets.QToolButton()
+        self.btn_nav_xbox_profile.setText("👤")
+        self.btn_nav_xbox_profile.setToolTip("Refresh Xbox profile")
+        self.btn_nav_xbox_profile.setAutoRaise(True)
+        sidebar.addWidget(self.btn_nav_xbox_profile)
+
+        # Library refresh
+        self.btn_nav_refresh = QtWidgets.QToolButton()
+        self.btn_nav_refresh.setText("⟳")
+        self.btn_nav_refresh.setToolTip("Refresh library")
+        self.btn_nav_refresh.setAutoRaise(True)
+        sidebar.addWidget(self.btn_nav_refresh)
+
+        # Log viewer
+        self.btn_nav_log = QtWidgets.QToolButton()
+        self.btn_nav_log.setText("📜")
+        self.btn_nav_log.setToolTip("Log")
+        self.btn_nav_log.setAutoRaise(True)
+        sidebar.addWidget(self.btn_nav_log)
+
+        sidebar.addStretch(1)
+
+        # Settings / skins / add-edit-delete-sync menu
+        self.btn_nav_settings = QtWidgets.QToolButton()
+        self.btn_nav_settings.setText("⚙")
+        self.btn_nav_settings.setToolTip("Settings")
+        self.btn_nav_settings.setAutoRaise(True)
+        sidebar.addWidget(self.btn_nav_settings)
+
+        root_layout.addLayout(sidebar)
+
+        # Main column (search + grid + details)
+        layout = QtWidgets.QVBoxLayout()
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
+        root_layout.addLayout(layout, 1)
         # Add Xbox profile header (gamertag + avatar)
         if 'XboxProfileWidget' in globals() and XboxProfileWidget:
             try:
                 self.xbox_profile = XboxProfileWidget(self)
                 layout.addWidget(self.xbox_profile)
+                # Hide the built‑in refresh button on the profile widget; we
+                # expose this as a sidebar action instead so all refresh /
+                # actions live in one place.
+                try:
+                    if hasattr(self.xbox_profile, "btn_refresh"):
+                        self.xbox_profile.btn_refresh.setVisible(False)
+                except Exception:
+                    pass
                 try:
                     if getattr(self, '_xbl_headers', None):
                         self.xbox_profile.set_headers(self._xbl_headers)
@@ -1479,11 +2012,87 @@ class Main(QtWidgets.QWidget):
                 pass
 
 
-        # Game selector + CRUD
-        row = QtWidgets.QHBoxLayout()
+        # Toggles
+        toggles = QtWidgets.QHBoxLayout()
+        self.chk_priority = QtWidgets.QCheckBox("High priority")
+        self.chk_affinity = QtWidgets.QCheckBox("Set CPU affinity")
+        self.chk_flags = QtWidgets.QCheckBox("Use game flags")
+        self.chk_priority.setChecked(True)
+        self.chk_affinity.setChecked(True)
+        self.chk_flags.setChecked(True)
+        self.le_mask = QtWidgets.QLineEdit("")
+        self.le_mask.setPlaceholderText("HEX mask (blank = auto, all CPUs except CPU0)")
+        self.le_mask.setMaximumWidth(260)
+        toggles.addWidget(self.chk_priority)
+        toggles.addWidget(self.chk_affinity)
+        toggles.addWidget(self.chk_flags)
+        toggles.addWidget(QtWidgets.QLabel("Mask:"))
+        toggles.addWidget(self.le_mask)
+        toggles.addStretch(1)
+        layout.addLayout(toggles)
+
+        # Extra flags per‑launch
+        self.extra_flags = QtWidgets.QLineEdit("")
+        self.extra_flags.setPlaceholderText("Extra flags (space-separated, appended at launch)")
+        layout.addWidget(self.extra_flags)
+
+        # Discord RPC row
+        disc_row = QtWidgets.QHBoxLayout()
+        self.btn_settings = QtWidgets.QPushButton("Settings (Discord RPC)")
+        self.btn_settings.setVisible(False)
+        self.lbl_discord = QtWidgets.QLabel(self._discord_status_text())
+        self.lbl_discord.setStyleSheet("color: gray;")
+        disc_row.addWidget(self.btn_settings)
+        disc_row.addWidget(self.lbl_discord, 1)
+        layout.addLayout(disc_row)
+        self.btn_check_updates = QtWidgets.QPushButton("Check for updates")
+        self.btn_check_updates.setToolTip("Check GitHub for a newer UWPLauncher build")
+        self.btn_check_updates.clicked.connect(lambda: _check_for_updates(self))
+        layout.addWidget(self.btn_check_updates)
+
+
+        # --- Game selector row (top bar) ---
+        selector_row = QtWidgets.QHBoxLayout()
+        selector_row.addWidget(QtWidgets.QLabel("Game:"))
         self.selector = QtWidgets.QComboBox()
-        row.addWidget(QtWidgets.QLabel("Game:"))
-        row.addWidget(self.selector, 1)
+        selector_row.addWidget(self.selector, 1)
+        layout.addLayout(selector_row)
+
+        # Cover size slider (controls card size in the grid)
+        self.cover_size_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
+        self.cover_size_slider.setRange(160, 320)
+
+        # Load last-used value from settings (clamped to slider range)
+        try:
+            saved_size = int(self.settings.get("cover_size", 220))
+        except Exception:
+            saved_size = 220
+        saved_size = max(160, min(saved_size, 320))
+        self.cover_size_slider.setValue(saved_size)
+
+        layout.addWidget(self.cover_size_slider)
+
+        # Scrollable grid of game artwork
+        self.games_scroll = QtWidgets.QScrollArea()
+        self.games_scroll.setWidgetResizable(True)
+        self.games_container = QtWidgets.QWidget()
+        self.games_layout = QtWidgets.QGridLayout(self.games_container)
+        self.games_layout.setContentsMargins(12, 12, 12, 12)
+        self.games_layout.setHorizontalSpacing(24)
+        self.games_layout.setVerticalSpacing(24)
+        self.games_scroll.setWidget(self.games_container)
+        layout.addWidget(self.games_scroll, 2)
+
+        # Game selector + CRUD (buttons kept but hidden; settings menu handles them)
+        row = QtWidgets.QHBoxLayout()
+        self.btn_add = QtWidgets.QPushButton("Add")
+        self.btn_edit = QtWidgets.QPushButton("Edit")
+        self.btn_del = QtWidgets.QPushButton("Delete")
+        self.btn_sync = QtWidgets.QPushButton("Sync UWP")
+        self.btn_add.setVisible(False)
+        self.btn_edit.setVisible(False)
+        self.btn_del.setVisible(False)
+        self.btn_sync.setVisible(False)
         self.btn_add = QtWidgets.QPushButton("Add")
         self.btn_edit = QtWidgets.QPushButton("Edit")
         self.btn_del = QtWidgets.QPushButton("Delete")
@@ -1501,6 +2110,7 @@ class Main(QtWidgets.QWidget):
         self.btn_actions_settings.setPopupMode(QtWidgets.QToolButton.ToolButtonPopupMode.InstantPopup)
         self.menu_actions = QtWidgets.QMenu(self)
         self.btn_actions_settings.setMenu(self.menu_actions)
+        self.btn_actions_settings.setVisible(False)
         row.addWidget(self.btn_actions_settings)
         # Populate menu
         act_add = self.menu_actions.addAction('Add')
@@ -1532,55 +2142,33 @@ class Main(QtWidgets.QWidget):
         self.btn_sync.setVisible(False)
 
         self.btn_friends = QtWidgets.QPushButton('Friends')
+        self.btn_friends.setVisible(False)
         row.addWidget(self.btn_friends)
         self.btn_xsignin = QtWidgets.QPushButton("Xbox Sign-In")
+        self.btn_xsignin.setVisible(False)
         row.addWidget(self.btn_xsignin)
         layout.addLayout(row)
 
-        # Toggles
-        toggles = QtWidgets.QHBoxLayout()
-        self.chk_priority = QtWidgets.QCheckBox("High priority")
-        self.chk_affinity = QtWidgets.QCheckBox("Set CPU affinity")
-        self.chk_flags = QtWidgets.QCheckBox("Use game flags")
-        self.chk_priority.setChecked(True)
-        self.chk_affinity.setChecked(True)
-        self.chk_flags.setChecked(True)
-        self.le_mask = QtWidgets.QLineEdit("")
-        self.le_mask.setPlaceholderText("HEX mask (blank = auto, all CPUs except CPU0)")
-        self.le_mask.setMaximumWidth(260)
-        toggles.addWidget(self.chk_priority)
-        toggles.addWidget(self.chk_affinity)
-        toggles.addWidget(self.chk_flags)
-        toggles.addWidget(QtWidgets.QLabel("Mask:"))
-        toggles.addWidget(self.le_mask)
-        toggles.addStretch(1)
-        layout.addLayout(toggles)
+        # Log (primary viewer is now opened from the sidebar)
+        self.log = QtWidgets.QTextEdit()
+        self.log.setReadOnly(True)
+        # Keep a reasonable size but hide it from the main layout
+        self.log.setMinimumHeight(140)
+        self.log.setVisible(False)
+        layout.addWidget(self.log, 1)
 
-        # Extra flags per‑launch
-        self.extra_flags = QtWidgets.QLineEdit("")
-        self.extra_flags.setPlaceholderText("Extra flags (space-separated, appended at launch)")
-        layout.addWidget(self.extra_flags)
+        
+        # Artwork preview for Steam games (optional, kept off-screen; background uses artwork directly)
+        self.lbl_artwork = QtWidgets.QLabel()
+        self.lbl_artwork.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        self.lbl_artwork.setMinimumHeight(1)
+        self.lbl_artwork.setVisible(False)
 
-        # Discord RPC row
-        disc_row = QtWidgets.QHBoxLayout()
-        self.btn_settings = QtWidgets.QPushButton("Settings (Discord RPC)")
-        self.lbl_discord = QtWidgets.QLabel(self._discord_status_text())
-        self.lbl_discord.setStyleSheet("color: gray;")
-        disc_row.addWidget(self.btn_settings)
-        disc_row.addWidget(self.lbl_discord, 1)
-        layout.addLayout(disc_row)
-
-        # Launch button
+        # Launch button (bottom of the main UI)
         self.btn = QtWidgets.QPushButton("LAUNCH")
         self.btn.setMinimumHeight(72)
         layout.addWidget(self.btn)
-
-        # Log
-        self.log = QtWidgets.QTextEdit()
-        self.log.setReadOnly(True)
-        layout.addWidget(self.log, 1)
-
-        # Steam status (LED + label)
+# Steam status (LED + label)
         status_row = QtWidgets.QHBoxLayout()
         self.lbl_steam_led = QtWidgets.QLabel()
         self.lbl_steam_led.setFixedSize(14, 14)
@@ -1594,6 +2182,28 @@ class Main(QtWidgets.QWidget):
         # Data
         self.games = load_games()
         self._refresh_selector()
+
+        # Sidebar refresh: reload games + selector + grid when the user clicks
+        # the refresh tool button.
+        try:
+            self.btn_nav_refresh.clicked.connect(self._on_nav_refresh)
+        except Exception:
+            pass
+
+        # Hook up grid controls (cover size slider)
+        try:
+            # Smooth resize: resize existing cards on the fly instead of
+            # rebuilding the whole grid on every tick.
+            self.cover_size_slider.setTracking(True)
+            self.cover_size_slider.valueChanged.connect(self._on_cover_size_changed)
+        except Exception:
+            pass
+
+        # Rebuild grid once after loading
+        try:
+            self._rebuild_game_grid()
+        except Exception:
+            pass
 
         # Initialize Steam LED based on current config/steam.json (if any)
         try:
@@ -1615,6 +2225,37 @@ class Main(QtWidgets.QWidget):
         except Exception:
             pass
 
+        # Wire sidebar nav buttons to existing actions
+        try:
+            self.btn_nav_friends.clicked.connect(self._open_friends)
+        except Exception:
+            pass
+        try:
+            # Tapping the sidebar settings button opens the same menu as the old Settings toolbutton.
+            self.btn_nav_settings.clicked.connect(lambda: self.btn_actions_settings.showMenu())
+        except Exception:
+            pass
+        try:
+            # Discord RPC settings from sidebar
+            self.btn_nav_discord.clicked.connect(self._on_settings)
+        except Exception:
+            pass
+        try:
+            # Xbox sign-in from sidebar
+            self.btn_nav_xbox.clicked.connect(self.on_xbox_sign_in)
+        except Exception:
+            pass
+        try:
+            # Xbox profile refresh (avatar / gamertag) from sidebar
+            self.btn_nav_xbox_profile.clicked.connect(self._on_nav_xbox_profile_refresh)
+        except Exception:
+            pass
+        try:
+            # Log viewer from sidebar
+            self.btn_nav_log.clicked.connect(self._show_log_viewer)
+        except Exception:
+            pass
+
         # Show defaults of first game
         self._on_sel_change(self.selector.currentIndex())
 
@@ -1623,7 +2264,46 @@ class Main(QtWidgets.QWidget):
 
                     # ---------- helpers ----------
     def _append(self, s:str):
-        self.log.append(s)
+        # Main log sink
+        try:
+            self.log.append(s)
+        except Exception:
+            pass
+        # Mirror into log viewer if it exists
+        try:
+            if hasattr(self, "log_view") and self.log_view is not None:
+                self.log_view.append(s)
+        except Exception:
+            pass
+
+    
+    def _show_log_viewer(self):
+        """Open a modeless window showing the log contents."""
+        from PyQt6 import QtWidgets as _QtWidgets
+        try:
+            dlg = getattr(self, "_log_dialog", None)
+            if dlg is None:
+                dlg = _QtWidgets.QDialog(self)
+                dlg.setWindowTitle("Log")
+                dlg.resize(900, 400)
+                layout = _QtWidgets.QVBoxLayout(dlg)
+                self.log_view = _QtWidgets.QTextEdit()
+                self.log_view.setReadOnly(True)
+                # Seed with current log text
+                try:
+                    self.log_view.setPlainText(self.log.toPlainText())
+                except Exception:
+                    pass
+                layout.addWidget(self.log_view)
+                self._log_dialog = dlg
+            dlg.show()
+            dlg.raise_()
+            dlg.activateWindow()
+        except Exception as e:
+            try:
+                print(f"[log] failed to show log viewer: {e}")
+            except Exception:
+                pass
 
     def _update_steam_led(self):
         """Update the Steam LED indicator based on config/steam.json.
@@ -1659,6 +2339,198 @@ class Main(QtWidgets.QWidget):
             except Exception:
                 pass
 
+
+    def _update_artwork_for_current_game(self):
+        """Update the artwork QLabel based on the currently selected game.
+        - Only shows art for Steam games with a cached image.
+        - If no artwork is available, the label is left blank.
+        Also makes sure artwork is cached on demand for the current Steam appid.
+        """
+        try:
+            from PyQt6 import QtGui, QtCore as _QtCore
+        except Exception:
+            return
+        try:
+            g = self._current_game()
+        except Exception:
+            g = None
+        art_path = None
+        try:
+            if g:
+                # Prefer per-game custom artwork if present
+                try:
+                    custom = str(g.get("custom_art_path", "")).strip()
+                except Exception:
+                    custom = ""
+                if custom:
+                    try:
+                        import os as _os
+                        if _os.path.isfile(custom):
+                            art_path = custom
+                    except Exception:
+                        art_path = None
+                # If no custom artwork, fall back to Steam artwork by appid
+                if not art_path:
+                    appid = str(g.get("appid", "")).strip()
+                    if appid:
+                        # Ensure artwork is cached for this appid (also creates config/artwork).
+                        try:
+                            _steam_artwork_ensure_cached(appid)
+                        except Exception as e:
+                            print(f"[ART] on-select cache failed for appid {appid}: {e}")
+                        p = _steam_artwork_path(appid)
+                        # Support both Path and plain string
+                        if hasattr(p, "is_file"):
+                            if p.is_file():
+                                art_path = str(p)
+                        else:
+                            import os as _os
+                            if _os.path.isfile(p):
+                                art_path = str(p)
+        except Exception:
+            art_path = None
+
+        if art_path and hasattr(self, "lbl_artwork"):
+            try:
+                pix = QtGui.QPixmap(art_path)
+                if not pix.isNull():
+                    # Scale to fit label while keeping aspect ratio
+                    w = max(1, self.lbl_artwork.width() or 320)
+                    h = max(1, self.lbl_artwork.height() or 240)
+                    scaled = pix.scaled(
+                        w,
+                        h,
+                        _QtCore.Qt.AspectRatioMode.KeepAspectRatio,
+                        _QtCore.Qt.TransformationMode.SmoothTransformation,
+                    )
+                    self.lbl_artwork.setPixmap(scaled)
+                    # Optional: apply artwork as background if enabled
+                    try:
+                        settings_obj = getattr(self, "settings", None)
+                        if isinstance(settings_obj, dict) and settings_obj.get("use_artwork_theme"):
+                            self._set_artwork_background(art_path)
+                    except Exception:
+                        pass
+                    return
+            except Exception:
+                pass
+        # No artwork found or failed to load → clear the label and background
+        try:
+            if hasattr(self, "lbl_artwork"):
+                self.lbl_artwork.clear()
+            try:
+                self._set_artwork_background(None)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+
+    def _set_artwork_background(self, art_path: str):
+        """
+        Store the selected artwork path and trigger a repaint so the entire
+        window background is covered by that image.
+        """
+        try:
+            from PyQt6 import QtGui
+        except Exception:
+            return
+        try:
+            if not art_path:
+                self._artwork_bg_path = None
+                self._artwork_bg = None
+                self.update()
+                return
+            pix = QtGui.QPixmap(art_path)
+            if pix.isNull():
+                return
+            self._artwork_bg_path = art_path
+            self._artwork_bg = pix
+            self.update()
+        except Exception:
+            pass
+
+    def paintEvent(self, event):
+        """Custom paint to draw the artwork across the whole window background."""
+        try:
+            from PyQt6 import QtGui, QtCore
+            pix = getattr(self, "_artwork_bg", None)
+            if pix is not None and not pix.isNull():
+                painter = QtGui.QPainter(self)
+                try:
+                    target_size = self.size()
+                    tw, th = target_size.width(), target_size.height()
+                    if tw > 0 and th > 0:
+                        img_size = pix.size()
+                        iw, ih = img_size.width(), img_size.height()
+                        if iw > 0 and ih > 0:
+                            # Scale so the image *covers* the entire UI, keeping aspect ratio,
+                            # and then crop the overflow (like a wallpaper cover mode).
+                            scale = max(tw / iw, th / ih)
+                            new_w = int(iw * scale)
+                            new_h = int(ih * scale)
+                            scaled = pix.scaled(
+                                new_w,
+                                new_h,
+                                QtCore.Qt.AspectRatioMode.KeepAspectRatio,
+                                QtCore.Qt.TransformationMode.SmoothTransformation,
+                            )
+                            # Center the cropped image within the window
+                            x = (tw - new_w) // 2
+                            y = (th - new_h) // 2
+                            # Make the background slightly transparent so UI elements stay readable
+                            painter.setOpacity(0.35)
+                            painter.drawPixmap(x, y, scaled)
+                finally:
+                    painter.end()
+        except Exception:
+            # Fail silently if there is any issue with painting; do not crash the UI
+            pass
+        # Let the normal Qt / stylesheet painting run for all child widgets
+        super().paintEvent(event)
+
+
+
+
+    def _on_nav_xbox_profile_refresh(self):
+        """Refresh the Xbox profile widget (gamertag + avatar) using the
+        latest Xbox Live headers if available."""
+        try:
+            xp = getattr(self, "xbox_profile", None)
+            if xp is None:
+                return
+            # Re-apply headers if we have them
+            try:
+                if getattr(self, "_xbl_headers", None) and hasattr(xp, "set_headers"):
+                    xp.set_headers(self._xbl_headers)
+            except Exception:
+                pass
+            try:
+                xp.refresh()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _on_nav_refresh(self):
+        """Refresh library via Steam sync and then refresh selector + grid.
+
+        This uses the existing NONUWP Steam sync helper so new games / changes
+        are pulled in, instead of only re-reading games.json.
+        """
+        try:
+            _NONUWP_act_sync(self)
+        except Exception:
+            # Fallback: at least reload games.json and refresh selector/grid.
+            try:
+                self.games = load_games()
+            except Exception:
+                return
+            try:
+                self._refresh_selector()
+            except Exception:
+                pass
+
     def _refresh_selector(self):
         self.selector.blockSignals(True)
         self.selector.clear()
@@ -1666,6 +2538,15 @@ class Main(QtWidgets.QWidget):
         self.selector.blockSignals(False)
         if self.selector.count() > 0:
             self.selector.setCurrentIndex(0)
+        try:
+            self._update_artwork_for_current_game()
+        except Exception:
+            pass
+        # Rebuild the game artwork grid when the library changes
+        try:
+            self._rebuild_game_grid()
+        except Exception:
+            pass
 
     def _on_sel_change(self, idx:int):
         g = self._current_game()
@@ -1674,6 +2555,256 @@ class Main(QtWidgets.QWidget):
         self.chk_affinity.setChecked(bool(g.get("apply_affinity", True)))
         self.chk_flags.setChecked(bool(g.get("use_flags", True)))
         self.le_mask.setText(g.get("mask_hex",""))
+        try:
+            self._update_artwork_for_current_game()
+        except Exception:
+            pass
+
+
+    def _art_path_for_game(self, g):
+        """Return best artwork path for a given game dict, honoring custom_art_path first."""
+        if not g:
+            return None
+        art_path = None
+        try:
+            # Prefer per-game custom artwork if present
+            try:
+                custom = str(g.get("custom_art_path", "")).strip()
+            except Exception:
+                custom = ""
+            if custom:
+                try:
+                    import os as _os
+                    if _os.path.isfile(custom):
+                        art_path = custom
+                except Exception:
+                    art_path = None
+            # If no custom artwork, fall back to Steam artwork by appid
+            if not art_path:
+                appid = str(g.get("appid", "")).strip()
+                if appid:
+                    try:
+                        _steam_artwork_ensure_cached(appid)
+                    except Exception as e:
+                        print(f"[ART] grid cache failed for appid {appid}: {e}")
+                    try:
+                        p = _steam_artwork_path(appid)
+                    except Exception:
+                        p = None
+                    if p is not None:
+                        if hasattr(p, "is_file"):
+                            if p.is_file():
+                                art_path = str(p)
+                        else:
+                            import os as _os
+                            if _os.path.isfile(p):
+                                art_path = str(p)
+        except Exception:
+            art_path = None
+        return art_path
+
+    def _rebuild_game_grid(self):
+        """Rebuild the cover grid to look like the Xenia-style layout."""
+        try:
+            from PyQt6 import QtGui, QtCore, QtWidgets as _QtWidgets
+        except Exception:
+            return
+        layout = getattr(self, "games_layout", None)
+        container = getattr(self, "games_container", None)
+        if layout is None or container is None:
+            return
+
+        # Clear existing items
+        try:
+            while layout.count():
+                item = layout.takeAt(0)
+                w = item.widget()
+                if w is not None:
+                    w.setParent(None)
+        except Exception:
+            pass
+
+        self._card_widgets = []
+
+        games = getattr(self, "games", []) or []
+        if not games:
+            return
+
+        query = ""
+        try:
+            if hasattr(self, "search_edit") and self.search_edit is not None:
+                query = self.search_edit.text().strip().lower()
+        except Exception:
+            query = ""
+
+        try:
+            size = int(self.cover_size_slider.value()) if hasattr(self, "cover_size_slider") else 160
+        except Exception:
+            size = 160
+        size = max(96, min(size, 320))
+
+        # Grid layout: cap to 4 columns max per row.
+        # We fill columns left-to-right, then move to the next row so there
+        # are at most 4 game cards in each row. Extra games are accessible via
+        # vertical scrolling.
+        max_cols = 4
+        row = 0
+        col = 0
+
+        for idx, g in enumerate(games):
+            name = str(g.get("name", "") or "").strip()
+            if query and query not in name.lower():
+                continue
+
+            card = _QtWidgets.QFrame()
+            card.setFrameShape(_QtWidgets.QFrame.Shape.StyledPanel)
+            card.setObjectName("gameCard")
+
+            v = _QtWidgets.QVBoxLayout(card)
+            v.setContentsMargins(4, 4, 4, 4)
+            v.setSpacing(4)
+
+            cover = _QtWidgets.QLabel()
+            cover.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+            cover_w = size
+            cover_h = int(size * 1.4)
+            cover.setFixedSize(cover_w, cover_h)
+
+            # Lock card width to the cover width so cards
+            # don't stretch wider than their artwork when the
+            # main window is resized.
+            card_w = cover_w + 8  # 4px margins on each side
+            card.setFixedWidth(card_w)
+
+            art_path = self._art_path_for_game(g)
+            pix = None
+            if art_path:
+                try:
+                    pix = QtGui.QPixmap(art_path)
+                except Exception:
+                    pix = None
+            if pix is not None and (not pix.isNull()):
+                # Keep the original pixmap on the card so we can rescale it
+                # smoothly as the user moves the slider, without hitting disk
+                # or network again.
+                card._cover_pixmap = pix
+                cover._base_pixmap = pix
+                scaled = pix.scaled(
+                    cover_w,
+                    cover_h,
+                    QtCore.Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                    QtCore.Qt.TransformationMode.SmoothTransformation,
+                )
+                cover.setPixmap(scaled)
+            else:
+                card._cover_pixmap = None
+                cover._base_pixmap = None
+                cover.setStyleSheet("background-color: #202020; border-radius: 4px;")
+                cover.setText("No Art")
+                cover.setWordWrap(True)
+
+            title = _QtWidgets.QLabel(name or "(unnamed)")
+            title.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+            title.setWordWrap(True)
+
+            v.addWidget(cover)
+            v.addWidget(title)
+
+            # Remember the cover widget so we can resize it later when the
+            # slider moves, without rebuilding the whole grid.
+            try:
+                card._cover_label = cover
+            except Exception:
+                pass
+
+            def _clicked(ev, index=idx):
+                self._on_game_card_clicked(index)
+            card.mousePressEvent = _clicked
+
+            layout.addWidget(card, row, col)
+            self._card_widgets.append(card)
+
+            # Fill columns first (up to max_cols), then move to the next row.
+            col += 1
+            if col >= max_cols:
+                col = 0
+                row += 1
+
+        # Force relayout
+        try:
+            container.updateGeometry()
+            container.adjustSize()
+        except Exception:
+            pass
+
+
+    def _on_cover_size_changed(self, value:int):
+        """Smoothly resize existing game cards when the slider moves.
+        This only rescales the in-memory pixmaps and adjusts widget sizes,
+        avoiding a full grid rebuild for each tick so the UI stays responsive.
+        """
+        try:
+            from PyQt6 import QtCore as _QtCore
+        except Exception:
+            return
+        try:
+            size = int(value)
+        except Exception:
+            size = 160
+        size = max(96, min(size, 320))
+
+        cards = getattr(self, "_card_widgets", []) or []
+        for card in cards:
+            try:
+                cover = getattr(card, "_cover_label", None)
+                if cover is None:
+                    continue
+                base_pix = getattr(card, "_cover_pixmap", None)
+                cover_w = size
+                cover_h = int(size * 1.4)
+                cover.setFixedSize(cover_w, cover_h)
+
+                # Keep the card width in sync with the current cover size
+                try:
+                    card_w = cover_w + 8  # 4px margins on each side
+                    card.setFixedWidth(card_w)
+                except Exception:
+                    pass
+
+                if base_pix is not None and (not base_pix.isNull()):
+                    scaled = base_pix.scaled(
+                        cover_w,
+                        cover_h,
+                        _QtCore.Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                        _QtCore.Qt.TransformationMode.SmoothTransformation,
+                    )
+                    cover.setPixmap(scaled)
+            except Exception:
+                continue
+
+        try:
+            container = getattr(self, "games_container", None)
+            if container is not None:
+                container.updateGeometry()
+                container.adjustSize()
+        except Exception:
+            pass
+
+        # Persist slider value in settings so the grid size is remembered
+        try:
+            if isinstance(getattr(self, "settings", None), dict):
+                self.settings["cover_size"] = size
+                save_settings(self.settings)
+        except Exception:
+            pass
+
+    def _on_game_card_clicked(self, index:int):
+        """When user clicks a card, select that game in the underlying combo and update details."""
+        try:
+            if 0 <= index < self.selector.count():
+                self.selector.setCurrentIndex(index)
+        except Exception:
+            pass
 
     def _current_game(self):
         name = self.selector.currentText().strip()
@@ -2067,6 +3198,13 @@ def _NONUWP_act_sync(self):
                 if is_dup:
                     continue
 
+
+                if appid:
+                    try:
+                        _steam_artwork_ensure_cached(appid)
+                    except Exception:
+                        pass
+
                 entry = {
                     "name": name or f"App {appid}",
                     "exe_name": "",
@@ -2085,6 +3223,71 @@ def _NONUWP_act_sync(self):
                     merged = True
                 except Exception:
                     pass
+
+        # ADD-ONLY: ensure Steam artwork is cached for all Steam games after sync
+        # Shows a small progress dialog so the UI doesn't feel frozen while images download.
+        try:
+            try:
+                from PyQt6 import QtWidgets, QtCore
+            except Exception:
+                QtWidgets = None
+                QtCore = None
+
+            steam_games = []
+            for gg in self.games:
+                if not isinstance(gg, dict):
+                    continue
+                if str(gg.get("source", "")).strip().lower() != "steam":
+                    continue
+                appid = str(gg.get("appid", "")).strip()
+                if not appid:
+                    continue
+                steam_games.append(appid)
+
+            dlg = None
+            if steam_games and QtWidgets is not None and QtCore is not None:
+                try:
+                    dlg = QtWidgets.QProgressDialog("Fetching Steam artwork...", "Cancel", 0, len(steam_games), self)
+                    dlg.setWindowTitle("Artwork")
+                    dlg.setWindowModality(QtCore.Qt.WindowModality.WindowModal)
+                    dlg.setAutoClose(True)
+                    dlg.setAutoReset(True)
+                except Exception:
+                    dlg = None
+                # Set wait cursor while we work
+                try:
+                    self.setCursor(QtCore.Qt.CursorShape.WaitCursor)
+                except Exception:
+                    pass
+
+            for i, appid in enumerate(steam_games):
+                if dlg is not None and QtWidgets is not None:
+                    try:
+                        dlg.setValue(i)
+                        QtWidgets.QApplication.processEvents()
+                        if dlg.wasCanceled():
+                            break
+                    except Exception:
+                        pass
+                try:
+                    _steam_artwork_ensure_cached(appid)
+                except Exception as e:
+                    print(f"[ART] sync cache failed for appid {appid}: {e}")
+
+            if dlg is not None:
+                try:
+                    dlg.setValue(len(steam_games))
+                    dlg.close()
+                except Exception:
+                    pass
+            # Restore cursor
+            if QtWidgets is not None and QtCore is not None:
+                try:
+                    self.unsetCursor()
+                except Exception:
+                    pass
+        except Exception as e:
+            print(f"[ART] bulk cache failure: {e}")
 
         if merged:
             try:

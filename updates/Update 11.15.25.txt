@@ -1,0 +1,125 @@
+# UWPLauncher
+
+UWPLauncher is a Windows game launcher focused on Xbox / UWP / Game Pass titles, with support for non-UWP games and Steam. It gives you Xbox-style vibes (green/black theme), an artwork-driven library grid, and tools to launch games with custom CPU affinity / priority.
+---
+- Launches UWP / Game Pass / Microsoft Store titles via UWPHook
+- Launches non-UWP PC games (Steam, GOG, local EXEs)
+- Optional CPU affinity and high-priority toggles per game
+- Steam library sync to pull in your games (and now their cover art)
+- Xbox Live friends dock and profile/avatar widget (using existing OpenXbox tokens)
+- Discord Rich Presence so your launcher/game shows up on your Discord status
+- All game and settings data stored in a simple JSON config
+
+---
+
+## What’s New in This Build 
+
+1. Built-in GitHub Auto-Updater
+
+The launcher can now check GitHub for new releases and download the latest EXE directly into your launcher folder.
+This means you no longer have to manually hunt for updates on GitHub.
+---
+
+### 2. Steam Artwork Downloading & Caching
+
+- New helpers fetch cover art for each Steam app ID from the Steam CDN.
+- Artwork is cached as `config/artwork/<appid>.jpg` so it only downloads once per game.
+- Uses "negative cache" so it doesn’t keep retrying app IDs that 404.
+  
+This artwork is then used in the grid and (optionally) as a theme background.
+
+---
+
+### 3. Artwork-Driven Game Grid & Background Theme
+
+The library grid is now heavily artwork-aware and looks more like a modern console UI:
+
+- Each game card uses custom artwork if you’ve set a custom art path for that game.
+- If you didn’t set custom art, it falls back to the cached Steam cover for that app ID.
+- Cover size slider controls card size smoothly  
+---
+
+### 4. Config Folder Cleanup & Safer Steam API Storage
+
+The new build cleans up where JSON files live and slightly hardens Steam API storage:
+
+- All launcher-generated JSONs except `tokens.json` are now stored under a `config` directory, instead of the root folder.   
+---
+
+### 5. Embedded XBL Helpers
+
+Previously, certain Xbox Live helper scripts could spawn a second GUI window or require separate files next to the EXE.
+
+The new build:
+
+- Embeds the XBL helper modules directly and registers them in `sys.modules` at startup.
+- Adds inline wrappers for things like “Sign in to Steam” / “Refresh token” so they run inside the existing UI instead of popping open another app window.
+- Handles both `xbl_auth_device_any` and `xbl_login_standalone_v3` helpers internally, falling back gracefully if something fails.  
+
+Result: token refresh and sign-in should feel smoother and less fragile than in the 2.1.1 script.
+---
+
+### 6. Steam Status LED & Library Sync Feedback
+
+The Steam integration got some quality-of-life improvements:
+
+- A small status indicator is updated based on whether you’re signed in and have a valid Steam Web API key.
+- Syncing the Steam library logs more clearly what it’s doing (games updated, errors, etc.).
+- When Steam artwork is used, logs show when art is cached, fetched, or skipped because it already exists.  
+---
+
+## Installation
+
+1. **Download the latest release**
+
+   - Grab the latest UWPLauncher.exe from the Releases page on this repo.
+   - Keep it in its own folder (e.g. `E:\My Apps\UWPLauncher`).
+
+2. **First run**
+
+   - Double-click `UWPLauncher.exe`.
+   - On first launch it will create its `config` (and `config/artwork`) folder next to the EXE.  
+
+3. **Optional: Steam integration**
+
+   - Open the Settings tab inside the app.
+   - Enter:
+     - Your **SteamID64**
+     - Your **Steam Web API key**
+   - Sync your Steam library so the launcher can pull in your games and artwork.
+
+4. **Optional: Xbox Live**
+
+   - Make sure you already have your `tokens.json` from OpenXbox in the default location (the launcher tries multiple known paths).
+   - Use the Friends dock or profile widget to refresh tokens or sign in if  
+---
+
+## Using the Auto-Updater
+
+1. Inside UWPLauncher
+2. Click Check for updates.
+3. If a newer version exists:
+   - You’ll see a dialog showing current vs latest version.
+   - If an EXE asset is available, the launcher will ask if you want to download it now.
+4. The new EXE is saved right next to your current one; you can rename or replace your old file when you’re ready.  
+
+---
+
+## Known Limitations
+
+- Steam API key obfuscation is **not** real security. Anyone determined enough can reverse it, so treat your `steam.json` as sensitive.
+- Artwork fetching is best-effort. If a game doesn’t have a public library cover or the network is down, the launcher will just skip it.
+- This project is heavily tuned for **Windows** and uses Windows-specific APIs for things like CPU affinity and process priority.
+
+---
+
+## Feedback & Issues
+
+If you hit bugs, have feature ideas, or want to suggest UI tweaks:
+
+- Open an issue on this repo (ideally include:
+  - What you were doing,
+  - Logs from the launcher,
+  - And your Windows / Python / build info if relevant).
+
+UWPLauncher is actively iterated on, so feedback is welcome.
