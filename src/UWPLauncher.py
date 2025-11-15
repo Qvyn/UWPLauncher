@@ -392,7 +392,7 @@ from pathlib import Path
 
 # === App version & GitHub update config (ADD-ONLY) ===
 # Bump APP_VERSION whenever you ship a new build.
-APP_VERSION = "2.1.0"
+APP_VERSION = "3.0.1"
 
 # GitHub repo for UWPLauncher updates.
 GITHUB_REPO = "Qvyn/UWPLauncher"
@@ -401,7 +401,7 @@ GITHUB_LATEST_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest
 
 def _parse_version(v: str):
     """
-    Turn '2.1.0' into (2, 1, 0). Non-numeric parts are ignored.
+    Turn '3.0.0' into (3, 0, 0). Non-numeric parts are ignored.
     """
     parts = []
     for piece in str(v).strip().split("."):
@@ -1963,6 +1963,14 @@ class Main(QtWidgets.QWidget):
         self.btn_nav_refresh.setAutoRaise(True)
         sidebar.addWidget(self.btn_nav_refresh)
 
+        # Check for updates
+        self.btn_nav_update = QtWidgets.QToolButton()
+        self.btn_nav_update.setText("⬇")
+        self.btn_nav_update.setToolTip("Check for updates")
+        self.btn_nav_update.setAutoRaise(True)
+        self.btn_nav_update.clicked.connect(lambda: _check_for_updates(self))
+        sidebar.addWidget(self.btn_nav_update)
+
         # Log viewer
         self.btn_nav_log = QtWidgets.QToolButton()
         self.btn_nav_log.setText("📜")
@@ -2045,11 +2053,6 @@ class Main(QtWidgets.QWidget):
         disc_row.addWidget(self.btn_settings)
         disc_row.addWidget(self.lbl_discord, 1)
         layout.addLayout(disc_row)
-        self.btn_check_updates = QtWidgets.QPushButton("Check for updates")
-        self.btn_check_updates.setToolTip("Check GitHub for a newer UWPLauncher build")
-        self.btn_check_updates.clicked.connect(lambda: _check_for_updates(self))
-        layout.addWidget(self.btn_check_updates)
-
 
         # --- Game selector row (top bar) ---
         selector_row = QtWidgets.QHBoxLayout()

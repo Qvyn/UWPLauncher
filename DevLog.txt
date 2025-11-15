@@ -1,0 +1,522 @@
+Function Log – How UWPLauncher Works Internally
+1. Game Database & Settings
+
+load_games() 
+
+UWPLauncher
+
+Loads games.json from GAMES_DB_PATH.
+
+If the file doesn’t exist or is invalid, it seeds default entries via _seed_defaults(), saves them, and returns that list.
+
+Normalizes the flags field: if stored as a string, it splits into a list of arguments.
+
+save_games(data) 
+
+UWPLauncher
+
+Serializes the in-memory games list back to games.json (pretty-printed with indentation).
+
+Prints an error to console if saving fails (non-fatal).
+
+get_game_by_name(name, games) 
+
+UWPLauncher
+
+Linear search through the games list.
+
+Returns the first game dict whose "name" matches exactly, or None if not found.
+
+_seed_settings() / load_settings() / save_settings()
+
+_seed_settings() defines defaults for Discord RPC (enabled flag, client ID, and template strings).
+
+load_settings():
+
+Reads settings.json if present.
+
+Merges it with defaults so missing keys are auto-filled.
+
+Allows environment variable DISCORD_CLIENT_ID to override the client ID.
+
+Ensures Discord is enabled if a client ID is set.
+
+save_settings() writes the settings dictionary back to disk.
+
+2. Process / Affinity Helpers
+
+PROCESSENTRY32 struct & WinAPI bindings 
+
+UWPLauncher
+
+Wraps CreateToolhelp32Snapshot, Process32First, Process32Next, etc.
+
+Used for enumerating running processes by exe name.
+
+Helpers like iter_pids_by_name(...) and apply_affinity_priority(...) 
+
+UWPLauncher
+
+iter_pids_by_name → generator that yields process IDs matching the target exe name.
+
+apply_affinity_priority:
+
+Given a target exe name, a CPU mask (hex), and booleans for “affinity” and “high priority”:
+
+Walks processes.
+
+Applies the requested affinity mask and/or HIGH_PRIORITY_CLASS.
+
+Returns (num_changed, final_mask).
+
+These are what actually enforce your “use CPU1+ / high priority” behavior once the game process is detected.
+
+3. UWP App Discovery & Sync
+
+get_start_apps_via_powershell() 
+
+UWPLauncher
+
+Spawns PowerShell with:
+
+Get-StartApps | Select-Object Name,AppID | ConvertTo-Json
+
+Parses the JSON into a Python list of:
+
+{"Name": ..., "AppID": ...}
+
+
+This is how the launcher knows which UWP / Start menu apps exist and what their AUMIDs/AppIDs are.
+
+class UWPSyncDialog(QtWidgets.QDialog) 
+
+UWPLauncher
+
+“Sync UWP Apps” popup.
+
+Shows a searchable list of all Start Apps returned by get_start_apps_via_powershell().
+
+populate() fetches the latest list.
+
+_apply_filter() and _refresh() filter the list in memory as you type.
+
+selected_app() returns the dictionary for the currently selected entry so the main window can create a new game profile for it.
+
+4. Game Editor UI
+
+class GameEditor(QtWidgets.QDialog) 
+
+UWPLauncher
+
+
+Dialog for adding/editing an individual game entry.
+
+Key widgets:
+
+self.name → game display name.
+
+self.aumid → UWP AppID/AUMID (non-empty = UWP game).
+
+self.exe → executable name/path field (for non-UWP titles).
+
+self.flags → flags text box (" ".join(flags) when loading).
+
+self.mask → affinity mask hex (for CPU pinning).
+
+On OK, it builds a dict with the new/edited settings; the main window then merges this back into the games list and saves via save_games().
+
+5. Launch Worker (Actual Game Launch Logic)
+
+class Worker(QtCore.QObject) → run(self) 
+
+UWPLauncher
+
+
+This is the core “launch engine” that runs in a background thread. It:
+
+Reads the current game dict (self.game) and UI launch settings:
+
+use_flags, extra_flags
+
+mask_hex, do_aff (apply affinity), do_high (priority)
+
+Decides which launch path to use:
+
+a) Steam titles (your patch)
+
+If source == "steam" and appid is non-empty:
+
+Build steam://rungameid/<appid>.
+
+Launch via os.startfile(uri) (on Windows).
+
+Skips UWPHook entirely for Steam games.
+
+Does not attempt affinity/priority by EXE (there’s no direct exe name yet).
+
+b) Native / non-UWP EXE path
+
+If no AUMID and exe_path is set:
+
+Builds argv = [exe_path] + flags.
+
+Calls subprocess.Popen(argv) directly.
+
+Watches for the corresponding process by exe name.
+
+Applies apply_affinity_priority if requested.
+
+c) UWP / UWPHook path 
+
+UWPLauncher
+
+If aumid is present:
+
+Resolves UWPHook.exe via _resolve_uwphook_path.
+
+Launches with:
+
+[uwp_path, aumid, exe_name] + flags
+
+
+Waits for the game’s real exe to appear (exe_name).
+
+Applies affinity/priority to that process via apply_affinity_priority.
+
+Logs results into the UI log and emits presence payload for Discord RPC after launch, using templates from settings (discord_details_tpl, discord_state_tpl). 
+
+UWPLauncher
+
+6. Main Window / UI Wiring
+
+class Main(QtWidgets.QWidget) (selected parts)
+
+Game management:
+
+Keeps self.games as the in-memory list loaded from games.json. 
+
+UWPLauncher
+
+_refresh_selector() updates the combo box with all names.
+
+_current_game() returns the game dict for the currently selected name.
+
+“Add”, “Edit”, “Delete” use GameEditor and save_games() to update the database.
+
+Discord settings / status:
+
+_discord_status_text() builds the label text describing current RPC state. 
+
+UWPLauncher
+
+_on_settings() opens SettingsEditor, saves edits via save_settings(), and reconnects Discord if needed. 
+
+UWPLauncher
+
+_connect_discord_if_needed():
+
+If Discord RPC is enabled + a client ID exists:
+
+Connects the RPC client.
+
+Sets an initial “Browsing library” presence so Discord shows the app immediately. 
+
+UWPLauncher
+
+Launching a game:
+_on_launch(self) 
+
+UWPLauncher
+
+Pulls the selected game (_current_game()).
+
+Reads the UI checkboxes/text fields:
+
+chk_flags, chk_affinity, chk_priority
+
+extra_flags, le_mask
+
+Logs what’s about to happen:
+
+UWPHook info or “not used”
+
+AUMID, EXE name, flags, mask, HighPrio/Affinity booleans.
+
+Starts a Worker with this configuration on a background thread.
+
+7. Xbox Live Integration (Friends Dock, Tokens, Profile)
+
+A lot of XBL logic is embedded as strings and registered as in-memory modules to avoid shipping extra files. Example: xbl_signin_from_oauth_tokens.py, xbl_auth_device_any.py, xbl_profile_widget.py, xbl_friends_dock_INLINE_v5_REFRESH_UI_v2_PATCHED, etc.
+
+These embedded modules handle:
+
+Device-code auth or OAuth login for Xbox Live.
+
+Refreshing tokens and writing tokens.json.
+
+Fetching the profile (gamertag + avatar) and friendship lists via Xbox Live REST endpoints. 
+
+UWPLauncher
+
+The Friends Dock class methods _refresh_token_only and _do_auth are monkey-patched to call the embedded helpers inline, so no extra consoles or subprocess GUIs appear.
+
+8. Discord RPC Helper
+
+There’s a small, internal helper (not shown in the snippets above) that wraps the pypresence client. In summary it:
+
+Connects to Discord with the Client ID from settings/env.
+
+Exposes methods to:
+
+connect(log_fn) – open the WebSocket and report status to the log.
+
+set_presence(details, state, log_fn) – update what appears in Discord Rich Presence.
+
+Worker.run() builds the payload and emits it back to Main, which then calls into this helper.
+
+⚙️ Steam Integration – Function Log & Flow
+1. What Steam data the launcher needs
+
+The launcher uses two Steam things:
+
+SteamID64 – your unique 64-bit Steam account ID
+
+Steam Web API Key – a key tied to your Steam account that lets the launcher call the Web API on your behalf
+
+These are used only for:
+
+Syncing your Steam library (pulling your owned games and adding them to games.json with source: "steam" and appid). 
+
+games
+
+Running validation helpers (optional, via steam_validate / steam_validate_and_wait).
+
+They are not needed just to launch games – launching uses only the stored AppID via steam://rungameid/<appid>. 
+
+UWPLauncher
+
+2. Entering SteamID64 & API key (Sync Steam Library dialog)
+
+When you choose “Sync Steam Library” in the UI, the function:
+
+NONUWP_sync_steam_library_dialog(self)
+
+
+runs. 
+
+UWPLauncher_PATCHED_NONUWP_v3
+
+Internally this does:
+
+Loads the embedded nonuwp.launcher module with _NONUWP_module() and looks for a function named sync_steam_library.
+
+Calls sync_steam_library() once with no arguments. If Steam credentials are missing or the helper requires them, it raises a TypeError mentioning steamid or api_key. 
+
+UWPLauncher_PATCHED_NONUWP_v3
+
+If credentials are needed, it:
+
+Ensures a config folder exists.
+
+Tries to read config/steam.json and pre-fill any saved values. 
+
+UWPLauncher_PATCHED_NONUWP_v3
+
+Pops a dialog:
+
+dlg = QtWidgets.QDialog(self); dlg.setWindowTitle("Steam credentials")
+form = QtWidgets.QFormLayout(dlg)
+e_id = QtWidgets.QLineEdit(steamid)
+e_key = QtWidgets.QLineEdit(api_key); e_key.setEchoMode(QtWidgets.QLineEdit.EchoMode.Password)
+form.addRow("SteamID64:", e_id)
+form.addRow("API Key:", e_key)
+
+
+UWPLauncher_PATCHED_NONUWP_v3
+
+When you hit OK, it writes the credentials back to config/steam.json:
+
+{"steamid": "<your SteamID64>", "api_key": "<your API key>"}
+``` :contentReference[oaicite:7]{index=7}  
+
+
+
+Finally, it calls sync_steam_library with your credentials:
+
+if steamid and api_key:
+    return f(steamid=steamid, api_key=api_key)
+return _NONUWP_call_by_sig(f, steamid, api_key, steamid64=steamid, key=api_key)
+``` :contentReference[oaicite:8]{index=8}  
+
+
+The helper can accept either (steamid, api_key) or keyword args like steamid64 / key; _NONUWP_call_by_sig adapts to the function’s signature. 
+
+UWPLauncher_PATCHED_NONUWP_v3
+
+3. What sync_steam_library returns and how games are added
+
+The embedded sync_steam_library helper returns a tuple something like:
+
+(True, "Fetched N games.", {"response": {"games": [...]}})
+``` :contentReference[oaicite:10]{index=10}  
+
+The `_NONUWP_act_sync(self)` wrapper then:
+
+1. Calls `NONUWP_sync_steam_library_dialog(self)` to get the result. :contentReference[oaicite:11]{index=11}  
+2. Iterates through the `games` payload and builds entries like:
+
+   ```python
+   entry = {
+       "name": name or f"App {appid}",
+       "exe_name": "",
+       "exe": "",
+       "aumid": "",
+       "appid": appid,
+       "flags": [],
+       "mask_hex": "",
+       "use_flags": True,
+       "high_priority": True,
+       "apply_affinity": True,
+       "source": "steam",
+   }
+   ``` :contentReference[oaicite:12]{index=12}  
+
+3. Appends each entry to `self.games`, saves via `save_games(self.games)`, and refreshes the selector so the Steam games appear in the dropdown. :contentReference[oaicite:13]{index=13}  
+
+From this point on, Steam games live in `games.json` with `source: "steam"` and an `appid` but no `exe` or `aumid` — they’re handled as **Steam-native** titles. :contentReference[oaicite:14]{index=14}  
+
+---
+
+### 4. How launching Steam games works
+
+In the `Worker.run()` method (your launch engine):
+
+```python
+source = (self.game.get("source", "") or "").lower()
+appid = (self.game.get("appid", "") or "").strip()
+if source == "steam" and appid:
+    uri = f"steam://rungameid/{appid}"
+    self.progress.emit(f"Launching via Steam: {uri}")
+    ...
+    os.startfile(uri)
+    ...
+    self.done.emit(True, "Launched Steam game via Steam.")
+    return
+``` :contentReference[oaicite:15]{index=15}  
+
+So for **any** entry with:
+
+```json
+"source": "steam",
+"appid": "<some number>"
+
+
+the launcher:
+
+Builds a steam://rungameid/<appid> URI
+
+Lets Windows/Steam handle the actual launch
+
+Does not touch UWPHook or UWP logic for these entries
+
+CPU affinity / priority is not applied here because there’s no direct exe name; the launcher doesn’t know which process to hunt for yet. That’s by design in your patch.
+
+5. Steam sign-in (OpenID helper)
+
+The “Sign in with Steam” action in the UI is wired to:
+
+def _NONUWP_act_sign_in(self):
+    from PyQt6 import QtWidgets
+    try:
+        f = getattr(_NONUWP_module(), "steam_openid_login", None)
+        if callable(f): f()
+        QtWidgets.QMessageBox.information(self, "Steam Sign-In", "Sign-in initiated.")
+    except Exception as e:
+        QtWidgets.QMessageBox.warning(self, "Steam Sign-In", str(e))
+``` :contentReference[oaicite:16]{index=16}  
+
+What this means in practice:
+
+- When the user clicks the “Steam Sign-In” menu/button:
+  - The embedded `nonuwp.launcher.steam_openid_login()` helper is called.
+  - That helper (inside your nonuwp bundle) handles the **Steam OpenID flow** — opening a browser, letting the user log into Steam, and verifying their identity.
+- Your launcher just reports “Sign-in initiated.” and any error that bubbles up.
+
+So the **OpenID flow** is encapsulated in the helper; your wrapper keeps the UI side clean and non-blocking.
+
+---
+
+### 6. Steam validation flow (ownership / sanity checks)
+
+The “Validate through Steam” action uses:
+
+```python
+def NONUWP_validate_dialog(self):
+    from PyQt6 import QtWidgets
+    mod = _NONUWP_module()
+    f = getattr(mod, "steam_validate_and_wait", None)
+    if callable(f):
+        try: return f()
+        except TypeError:
+            try: return f(None)
+            except Exception: pass
+    f2 = getattr(mod, "steam_validate", None)
+    if callable(f2):
+        try: return f2()
+        except Exception as e:
+            QtWidgets.QMessageBox.warning(self, "Validate through Steam", str(e))
+``` :contentReference[oaicite:17]{index=17}  
+
+You also have a more advanced `_NONUWP_act_validate(self)` that:
+
+- Resolves both `steam_validate_and_wait` and `steam_validate`. :contentReference[oaicite:18]{index=18}  
+- Creates “call_noarg” and “call_with_appid” wrappers so it can either:
+  - Validate **globally**, or  
+  - Validate a **specific appid** if the selected game has one.
+- Shows a **non-modal QProgressDialog** that auto-hides after ~4s for UX. :contentReference[oaicite:19]{index=19}  
+- Runs `_NONUWP_Worker_Validate` in the background and displays either:
+  - The success result from Steam, or  
+  - An error / prompt to manually enter an AppID if needed.   
+
+Conceptually, the validation helpers do things like:
+
+- Confirm that the provided SteamID + API key are valid.  
+- Optionally confirm whether you own a given AppID before syncing/launching.  
+- Provide a human-readable status message that the dialog shows.
+
+---
+
+### 7. How a user gets their SteamID64 & API key 
+
+#### 🔢 SteamID64
+
+Your **SteamID64** is the long numeric ID for your account. Users can get it by:
+
+- Opening their Steam profile in a browser.  
+- If the URL is something like:  
+  `https://steamcommunity.com/profiles/7656xxxxxxxxxxxxx/`  
+  then `7656xxxxxxxxxxxxx` is the SteamID64.
+
+If they use a custom profile URL, they can click **“Copy Page URL”** on their profile (from the Steam client) or use a SteamID lookup site, then copy the long numeric ID.
+
+#### 🔑 Steam Web API Key
+
+1. Go to Steam’s **Web API key** page (Steam’s dev portal).  
+2. Log in with the same Steam account.  
+3. Enter a domain name (it can just be `localhost` or similar for personal use).  
+4. Click the button to generate an API key.  
+5. Copy the key and paste it into the launcher’s **Steam credentials** dialog.
+
+Once entered, your launcher will save them to:
+
+```text
+config/steam.json
+{
+  "steamid": "<your SteamID64>",
+  "api_key": "<your Web API key>"
+}
+
+
+From then on, Sync Steam Library and Steam validation can run without asking again, unless the file is deleted or corrupted.
+
+
