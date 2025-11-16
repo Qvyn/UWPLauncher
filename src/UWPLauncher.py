@@ -392,7 +392,7 @@ from pathlib import Path
 
 # === App version & GitHub update config (ADD-ONLY) ===
 # Bump APP_VERSION whenever you ship a new build.
-APP_VERSION = "3.0.1"
+APP_VERSION = "3.0.2"
 
 # GitHub repo for UWPLauncher updates.
 GITHUB_REPO = "Qvyn/UWPLauncher"
@@ -843,6 +843,30 @@ def refresh_xbl_token(parent=None):
             QMessageBox.information(parent, "Xbox token", msg)
         except Exception:
             print(msg)
+
+def _auto_refresh_xbl_token_silent():
+    """
+    Background Xbox token refresh used by the main window timer.
+
+    This reuses the same helper chain as refresh_xbl_token() but never shows
+    message boxes, because it can fire on app startup and every few minutes.
+    """
+    try:
+        ok = _try_import_run_helper_from_xbl()
+        if not ok:
+            ok = _try_spawn_helper_from_xbl_folder()
+        tok = _xbl_user_dir() / "tokens.json"
+        exists = tok.exists()
+        try:
+            print(f"[xbl_auto_refresh] helper_ok={ok} tokens_exist={exists} path={tok}")
+        except Exception:
+            pass
+    except Exception as e:
+        try:
+            print(f"[xbl_auto_refresh] error: {e}")
+        except Exception:
+            pass
+
 # === End add-only block ===
 
 import sys, os, time, json, ctypes, subprocess, threading
@@ -2037,6 +2061,9 @@ class Main(QtWidgets.QWidget):
         toggles.addWidget(QtWidgets.QLabel("Mask:"))
         toggles.addWidget(self.le_mask)
         toggles.addStretch(1)
+        toggles.addWidget(QtWidgets.QLabel("Game:"))
+        self.selector = QtWidgets.QComboBox()
+        toggles.addWidget(self.selector, 1)
         layout.addLayout(toggles)
 
         # Extra flags per‑launch
@@ -2044,22 +2071,13 @@ class Main(QtWidgets.QWidget):
         self.extra_flags.setPlaceholderText("Extra flags (space-separated, appended at launch)")
         layout.addWidget(self.extra_flags)
 
-        # Discord RPC row
+        # Discord RPC row (settings only; status label is at bottom)
         disc_row = QtWidgets.QHBoxLayout()
         self.btn_settings = QtWidgets.QPushButton("Settings (Discord RPC)")
         self.btn_settings.setVisible(False)
-        self.lbl_discord = QtWidgets.QLabel(self._discord_status_text())
-        self.lbl_discord.setStyleSheet("color: gray;")
         disc_row.addWidget(self.btn_settings)
-        disc_row.addWidget(self.lbl_discord, 1)
+        disc_row.addStretch(1)
         layout.addLayout(disc_row)
-
-        # --- Game selector row (top bar) ---
-        selector_row = QtWidgets.QHBoxLayout()
-        selector_row.addWidget(QtWidgets.QLabel("Game:"))
-        self.selector = QtWidgets.QComboBox()
-        selector_row.addWidget(self.selector, 1)
-        layout.addLayout(selector_row)
 
         # Cover size slider (controls card size in the grid)
         self.cover_size_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
@@ -2171,7 +2189,8 @@ class Main(QtWidgets.QWidget):
         self.btn = QtWidgets.QPushButton("LAUNCH")
         self.btn.setMinimumHeight(72)
         layout.addWidget(self.btn)
-# Steam status (LED + label)
+
+# Steam status (LED + label) + Discord RPC status (same bottom row)
         status_row = QtWidgets.QHBoxLayout()
         self.lbl_steam_led = QtWidgets.QLabel()
         self.lbl_steam_led.setFixedSize(14, 14)
@@ -2180,6 +2199,13 @@ class Main(QtWidgets.QWidget):
         status_row.addWidget(self.lbl_steam_led)
         status_row.addWidget(QtWidgets.QLabel("Steam"))
         status_row.addStretch(1)
+        self.lbl_discord = QtWidgets.QLabel(self._discord_status_text())
+        self.lbl_discord.setStyleSheet("color: gray;")
+        try:
+            self.lbl_discord.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight)
+        except Exception:
+            pass
+        status_row.addWidget(self.lbl_discord)
         layout.addLayout(status_row)
 
         # Data
@@ -2264,6 +2290,19 @@ class Main(QtWidgets.QWidget):
 
         # Try to connect Discord if enabled
         self._connect_discord_if_needed()
+        # Xbox tokens: auto-refresh at startup + every 5 minutes (silent)
+        try:
+            _auto_refresh_xbl_token_silent()
+            self._xbl_auto_timer = QtCore.QTimer(self)
+            self._xbl_auto_timer.setInterval(5 * 60 * 1000)
+            self._xbl_auto_timer.timeout.connect(_auto_refresh_xbl_token_silent)
+            self._xbl_auto_timer.start()
+        except Exception as e:
+            try:
+                print("[xbl_auto_refresh] timer setup failed:", e)
+            except Exception:
+                pass
+
 
                     # ---------- helpers ----------
     def _append(self, s:str):

@@ -1,0 +1,9 @@
+Consolidated UI spacing for better visuals.
+
+The game dropdown has been moved out of the top bar and placed next to the CPU Affinity Mask field.
+The game dropdown is no longer next to profile details.
+The top header now only shows your Xbox Profile
+The Discord RPC status text has been moved from the middle of the window to the very bottom and is aligned with the steam LED
+
+Tokens refresh immediately when the app opens. Then refresh every 5 minutes in the background. 
+( Uses the same logic as manual refresh)
