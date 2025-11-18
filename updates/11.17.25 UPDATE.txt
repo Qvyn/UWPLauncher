@@ -1,0 +1,11 @@
+Fixed update download location
+
+Update files now correctly download next to the current UWPLauncher.exe, instead of ending up inside a temporary folder where users can’t find them.
+
+Launcher is now fully self-version-aware
+A single APP_VERSION constant controls the entire app’s version identity.
+
+UI now displays the current version
+
+Updater dialogs now correctly compare versions
+

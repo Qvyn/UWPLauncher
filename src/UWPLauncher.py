@@ -419,6 +419,28 @@ def _version_is_newer(latest: str, current: str) -> bool:
     """
     return _parse_version(latest) > _parse_version(current)
 
+def _update_download_dir():
+    """Return the folder where update EXEs should be saved.
+
+    For frozen/EXE builds this is the folder containing the current
+    executable (next to the .exe), not the temporary _MEIPASS dir.
+    For dev/non-frozen runs we fall back to the script directory.
+    """
+    from pathlib import Path
+    # Frozen PyInstaller one-file exe: place download next to the exe
+    if getattr(sys, "frozen", False):
+        try:
+            return Path(sys.executable).parent
+        except Exception:
+            pass
+    # Non-frozen / dev: behave like the script normally would
+    try:
+        return Path(__file__).parent
+    except NameError:
+        return Path.cwd()
+
+
+
 
 def _check_for_updates(window):
     """
@@ -525,7 +547,7 @@ def _check_for_updates(window):
     if btn != QtWidgets.QMessageBox.StandardButton.Yes:
         return
 
-    target_dir = _app_root()
+    target_dir = _update_download_dir()
     try:
         target_dir.mkdir(parents=True, exist_ok=True)
     except Exception:
@@ -1918,7 +1940,7 @@ class Main(QtWidgets.QWidget):
             self._append(f"[friends] failed to launch popup: {e}")
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("ReloadMe+ (Games Manager)")
+        self.setWindowTitle(f"UWPLauncher v{APP_VERSION}")
         self.resize(920, 640)
 
         # Artwork-driven background support
@@ -1990,7 +2012,7 @@ class Main(QtWidgets.QWidget):
         # Check for updates
         self.btn_nav_update = QtWidgets.QToolButton()
         self.btn_nav_update.setText("⬇")
-        self.btn_nav_update.setToolTip("Check for updates")
+        self.btn_nav_update.setToolTip(f"Check for updates (current: {APP_VERSION})")
         self.btn_nav_update.setAutoRaise(True)
         self.btn_nav_update.clicked.connect(lambda: _check_for_updates(self))
         sidebar.addWidget(self.btn_nav_update)
