@@ -141,10 +141,15 @@ if "xbl" not in sys.modules:
     sys.modules["xbl"] = xbl_pkg
 
 def _register_module(name: str, code: str, virtual_file: str):
+    """
+    Load an embedded helper module from a trusted source string.
+
+    code always comes from our own embedded mapping, never from user input.
+    """
     mod = types.ModuleType(name)
     mod.__file__ = virtual_file
     sys.modules[name] = mod
-    exec(compile(code, virtual_file, "exec"), mod.__dict__)
+    exec(compile(code, virtual_file, "exec"), mod.__dict__)  # nosec B102: trusted, embedded code only
     return mod
 
 # === BEGIN EMBED: ensure nonuwp.launcher (base64) ===
@@ -392,7 +397,7 @@ from pathlib import Path
 
 # === App version & GitHub update config (ADD-ONLY) ===
 # Bump APP_VERSION whenever you ship a new build.
-APP_VERSION = "3.0.2"
+APP_VERSION = "3.0.4"
 
 # GitHub repo for UWPLauncher updates.
 GITHUB_REPO = "Qvyn/UWPLauncher"
@@ -451,6 +456,13 @@ def _check_for_updates(window):
     from pathlib import Path as _Path
     import requests, webbrowser, os
 
+    def _toast(msg: str, level: str = "info"):
+        try:
+            if window is not None and hasattr(window, "_show_toast"):
+                window._show_toast(msg, level)
+        except Exception:
+            pass
+
     try:
         resp = requests.get(GITHUB_LATEST_URL, timeout=5)
     except Exception as e:
@@ -459,6 +471,7 @@ def _check_for_updates(window):
             "Update check failed",
             f"Could not contact GitHub:\n{e}"
         )
+        _toast("Update check failed (network error).", "error")
         return
 
     if resp.status_code != 200:
@@ -467,6 +480,7 @@ def _check_for_updates(window):
             "Update check failed",
             f"GitHub API returned status {resp.status_code}."
         )
+        _toast(f"Update check failed (HTTP {resp.status_code}).", "error")
         return
 
     try:
@@ -477,6 +491,7 @@ def _check_for_updates(window):
             "Update check failed",
             f"Could not read response:\n{e}"
         )
+        _toast("Update check failed (bad response).", "error")
         return
 
     tag = (data.get("tag_name") or "").lstrip("v").strip()
@@ -495,6 +510,7 @@ def _check_for_updates(window):
             "UWPLauncher",
             f"You are already on the latest version ({APP_VERSION})."
         )
+        _toast("You’re already on the latest version.", "success")
         return
 
     assets = data.get("assets") or []
@@ -596,6 +612,7 @@ def _check_for_updates(window):
         f"Close this app and run the new file to finish updating.\n"
         f"Open the folder now?"
     )
+    _toast("Update downloaded to the selected folder.", "success")
     btn = QtWidgets.QMessageBox.question(
         window,
         "Update downloaded",
@@ -2341,6 +2358,91 @@ class Main(QtWidgets.QWidget):
             pass
 
     
+    def _show_toast(self, text: str, level: str = "info", timeout_ms: int = 3500):
+        """
+        Lightweight in-app toast notification in the bottom-right corner.
+        level: "info" | "success" | "error"
+        """
+        if not text:
+            return
+
+        try:
+            from PyQt6 import QtWidgets as _QtWidgets, QtGui as _QtGui, QtCore as _QtCore
+        except Exception:
+            return
+
+        # Pick background color based on level
+        if level == "success":
+            bg = "#2e7d32"   # green-ish
+        elif level == "error":
+            bg = "#c62828"   # red-ish
+        else:
+            bg = "#37474f"   # neutral dark
+
+        toast = _QtWidgets.QFrame(self)
+        toast.setObjectName("toast")
+        toast.setAttribute(_QtCore.Qt.WidgetAttribute.WA_StyledBackground, True)
+        toast.setStyleSheet(
+            f"""
+            QFrame#toast {{
+                background-color: {bg};
+                color: #ffffff;
+                border-radius: 8px;
+                padding: 8px 12px;
+            }}
+            """
+        )
+
+        layout = _QtWidgets.QHBoxLayout(toast)
+        layout.setContentsMargins(10, 6, 10, 6)
+        layout.setSpacing(8)
+
+        label = _QtWidgets.QLabel(text)
+        label.setWordWrap(True)
+        layout.addWidget(label)
+
+        toast.adjustSize()
+
+        # Position toast in bottom-right of the main window
+        margin = 16
+        size = toast.sizeHint()
+        w, h = size.width(), size.height()
+        x = max(0, self.width() - w - margin)
+        y = max(0, self.height() - h - margin)
+        toast.setGeometry(x, y, w, h)
+
+        # Fade-in / fade-out animations
+        effect = _QtWidgets.QGraphicsOpacityEffect(toast)
+        toast.setGraphicsEffect(effect)
+
+        anim_in = _QtCore.QPropertyAnimation(effect, b"opacity", toast)
+        anim_in.setDuration(200)
+        anim_in.setStartValue(0.0)
+        anim_in.setEndValue(1.0)
+
+        def start_fade_out():
+            anim_out = _QtCore.QPropertyAnimation(effect, b"opacity", toast)
+            anim_out.setDuration(250)
+            anim_out.setStartValue(1.0)
+            anim_out.setEndValue(0.0)
+
+            def cleanup():
+                toast.hide()
+                toast.deleteLater()
+
+            anim_out.finished.connect(cleanup)
+            toast._anim_out = anim_out
+            anim_out.start()
+
+        # Keep animations alive on the object so they don’t get GC’d
+        toast._anim_in = anim_in
+
+        toast.show()
+        anim_in.start()
+        _QtCore.QTimer.singleShot(timeout_ms, start_fade_out)
+
+
+
     def _show_log_viewer(self):
         """Open a modeless window showing the log contents."""
         from PyQt6 import QtWidgets as _QtWidgets
@@ -3026,12 +3128,22 @@ class Main(QtWidgets.QWidget):
         if self.settings.get("discord_enabled") and self.discord.connected:
             self.discord.set_presence(payload.get("details",""), payload.get("state",""), self._append)
 
-    def _on_done(self, ok:bool, msg:str):
+    def _on_done(self, ok: bool, msg: str):
         self._append(msg)
         self.btn.setDisabled(False)
         if hasattr(self, "thread") and self.thread:
             self.thread.quit()
             self.thread.wait(2000)
+
+        # Toast summary of the launch result
+        try:
+            if ok:
+                self._show_toast("Game launched successfully.", "success")
+            else:
+                # msg already has full details in the log
+                self._show_toast("Launch failed – see log for details.", "error")
+        except Exception:
+            pass
 
     # ---------- close ----------
 
@@ -3365,8 +3477,16 @@ def _NONUWP_act_sync(self):
 
         if res is not None:
             QtWidgets.QMessageBox.information(self, "Sync Steam Library", str(res))
+            try:
+                self._show_toast("Steam library synced.", "success")
+            except Exception:
+                pass
     except Exception as e:
         QtWidgets.QMessageBox.warning(self, "Sync Steam Library", str(e))
+        try:
+            self._show_toast("Steam library sync failed.", "error")
+        except Exception:
+            pass
 def _NONUWP_act_validate(self):
     from PyQt6 import QtWidgets
     try:
