@@ -1,0 +1,11 @@
+Fixed Bandit Security Warnings
+Added timeouts to Xbox Live network requests
+Secured subprocess calls
+Removed unsafe try/except/pass blocks
+Secured URL loading
+Patched All Embedded Modules
+Simplified Artwork Logging
+Added Console Progress Bar for Artwork
+Improved Steam Artwork Performance
+Made Xbox Live Token Refresh Non-Blocking
+
