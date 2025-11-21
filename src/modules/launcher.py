@@ -226,7 +226,10 @@ def sync_steam_library(steamid: str, api_key: Optional[str]) -> Tuple[bool, str,
     try:
         qs = urlencode({"key": api_key, "steamid": steamid, "include_appinfo": 1, "include_played_free_games": 1})
         url = "https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?" + qs
-        with urlopen(url, timeout=15) as resp:
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError(f"Unsupported URL scheme for Steam API: {parsed.scheme}")
+        with urlopen(url, timeout=15) as resp:  # nosec B310 - url is constructed with a fixed https base and validated scheme
             import json as _json
             data = _json.loads(resp.read().decode("utf-8", errors="ignore"))
             return (True, f"Fetched {len(data.get('response',{}).get('games', []))} games.", data)
