@@ -81,12 +81,10 @@ def _steam_artwork_ensure_cached(appid: str):
         try:
             if hasattr(p, "is_file"):
                 if p.is_file():
-                    print(f"[ART] already cached: {p}")
                     return
             else:
                 import os as _os
                 if _os.path.isfile(p):
-                    print(f"[ART] already cached (str path): {p}")
                     return
         except Exception:
             pass
@@ -2331,12 +2329,21 @@ class Main(QtWidgets.QWidget):
         self._connect_discord_if_needed()
         # Xbox tokens: auto-refresh at startup + every 5 minutes (silent)
         try:
-            _auto_refresh_xbl_token_silent()
+            import threading as _threading
+            try:
+                t = _threading.Thread(target=_auto_refresh_xbl_token_silent, daemon=True)
+                t.start()
+            except Exception:
+                _auto_refresh_xbl_token_silent()
             self._xbl_auto_timer = QtCore.QTimer(self)
             self._xbl_auto_timer.setInterval(5 * 60 * 1000)
             self._xbl_auto_timer.timeout.connect(_auto_refresh_xbl_token_silent)
             self._xbl_auto_timer.start()
         except Exception as e:
+            try:
+                print('[xbl_auto_refresh] timer setup failed:', e)
+            except Exception:
+                pass
             try:
                 print("[xbl_auto_refresh] timer setup failed:", e)
             except Exception:
@@ -3410,20 +3417,22 @@ def _NONUWP_act_sync(self):
                 QtCore = None
 
             steam_games = []
+            steam_games = []
             for gg in self.games:
                 if not isinstance(gg, dict):
                     continue
-                if str(gg.get("source", "")).strip().lower() != "steam":
+                if gg.get("platform") != "steam":
                     continue
-                appid = str(gg.get("appid", "")).strip()
+                appid = gg.get("appid")
                 if not appid:
                     continue
                 steam_games.append(appid)
 
             dlg = None
+            total = len(steam_games)
             if steam_games and QtWidgets is not None and QtCore is not None:
                 try:
-                    dlg = QtWidgets.QProgressDialog("Fetching Steam artwork...", "Cancel", 0, len(steam_games), self)
+                    dlg = QtWidgets.QProgressDialog("Fetching Steam artwork...", "Cancel", 0, total, self)
                     dlg.setWindowTitle("Artwork")
                     dlg.setWindowModality(QtCore.Qt.WindowModality.WindowModal)
                     dlg.setAutoClose(True)
@@ -3436,23 +3445,73 @@ def _NONUWP_act_sync(self):
                 except Exception:
                     pass
 
-            for i, appid in enumerate(steam_games):
-                if dlg is not None and QtWidgets is not None:
+            # Console progress bar (single line) so the user sees progress without spam
+            try:
+                _steam_art_console_start(total)
+            except Exception:
+                pass
+
+            # Multi-threaded artwork caching: small thread pool so HTTP fetches happen in parallel.
+            try:
+                import concurrent.futures as _cf
+                done = 0
+
+                def _worker(appid):
                     try:
-                        dlg.setValue(i)
-                        QtWidgets.QApplication.processEvents()
-                        if dlg.wasCanceled():
-                            break
+                        _steam_artwork_ensure_cached(appid)
+                    except Exception as e:
+                        try:
+                            print(f"[ART] sync cache failed for appid {appid}: {e}")
+                        except Exception:
+                            pass
+
+                max_workers = min(8, total) if total > 0 else 0
+                if max_workers > 0:
+                    with _cf.ThreadPoolExecutor(max_workers=max_workers) as _exec:
+                        futures = [_exec.submit(_worker, appid) for appid in steam_games]
+                        for _f in _cf.as_completed(futures):
+                            done += 1
+                            # update GUI progress
+                            if dlg is not None and QtWidgets is not None:
+                                try:
+                                    dlg.setValue(done)
+                                    QtWidgets.QApplication.processEvents()
+                                    if dlg.wasCanceled():
+                                        break
+                                except Exception:
+                                    pass
+                            # update console progress
+                            try:
+                                _steam_art_console_update(done)
+                            except Exception:
+                                pass
+            except Exception as _e:
+                try:
+                    print(f"[ART] threaded artwork sync failed, falling back to sequential: {_e}")
+                except Exception:
+                    pass
+                for i, appid in enumerate(steam_games, start=1):
+                    if dlg is not None and QtWidgets is not None:
+                        try:
+                            dlg.setValue(i)
+                            QtWidgets.QApplication.processEvents()
+                            if dlg.wasCanceled():
+                                break
+                        except Exception:
+                            pass
+                    try:
+                        _steam_artwork_ensure_cached(appid)
+                    except Exception as e:
+                        print(f"[ART] sync cache failed for appid {appid}: {e}")
+                    # console progress in fallback
+                    try:
+                        _steam_art_console_update(i)
                     except Exception:
                         pass
-                try:
-                    _steam_artwork_ensure_cached(appid)
-                except Exception as e:
-                    print(f"[ART] sync cache failed for appid {appid}: {e}")
 
             if dlg is not None:
                 try:
-                    dlg.setValue(len(steam_games))
+                    dlg.setValue(total)
                     dlg.close()
                 except Exception:
                     pass
