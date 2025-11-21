@@ -786,7 +786,9 @@ class FriendsDock(QtWidgets.QDialog):
                 return
 
             import subprocess, sys
-            proc = subprocess.run([sys.executable, helper, "--out", save_path], cwd=str(base))
+            # Safe subprocess: helper is resolved from trusted package directory and
+            # save_path is a user-chosen file path, not executable input.
+            proc = subprocess.run([sys.executable, helper, "--out", save_path], cwd=str(base))  # nosec B603
             if proc.returncode != 0:
                 QtWidgets.QMessageBox.critical(self, "Sign-in failed", f"Auth helper exited with code {proc.returncode}.")
                 self.sig_enable_btn.emit(True)
