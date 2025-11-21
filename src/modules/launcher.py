@@ -353,9 +353,13 @@ def save_games(data: Dict[str, Any]) -> None:
     _write_json(GAMES_PATH, data)
 
 def load_settings() -> Dict[str, Any]:
-    s = _read_json(SETTINGS_PATH, DEFAULT_SETTINGS.copy())
-    for k, v in DEFAULT_SETTINGS.items():
-        s.setdefault(k, v)
+    # Load settings, tolerating corrupted / unexpected JSON by falling back to defaults.
+    raw = _read_json(SETTINGS_PATH, DEFAULT_SETTINGS.copy())
+    if not isinstance(raw, dict):
+        raw = {}
+    # Start from defaults, then overlay anything the user has stored.
+    s: Dict[str, Any] = DEFAULT_SETTINGS.copy()
+    s.update(raw)
     return s
 
 def save_settings(s: Dict[str, Any]) -> None:
@@ -853,7 +857,13 @@ class MainWindow(QtWidgets.QWidget):
             return
         self.name_val.setText(g.get("name","-"))
         self.aumid_val.setText(g.get("aumid","-"))
-        self.flags_val.setText(g.get("flags","-"))
+        # flags may be stored as list or other types from older configs; normalise to string
+        flags_val = g.get("flags", "-")
+        if isinstance(flags_val, list):
+            flags_val = " ".join(str(x) for x in flags_val)
+        elif not isinstance(flags_val, str):
+            flags_val = str(flags_val)
+        self.flags_val.setText(flags_val)
         self.exe_val.setText(g.get("exe_name","-"))
         self.steam_val.setText(str(g.get("steam_appid","-")) or "-")
         self.validate_val.setText("Yes" if g.get("validate_steam") else "No")
