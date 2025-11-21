@@ -22,8 +22,9 @@ def _possible_token_paths():
     try:
         here = Path(__file__).resolve().parent
         paths.append(here / "tokens.json")
-    except Exception:
-        pass
+    except Exception as e:
+        # tokens.json next to this module is optional; log and continue.
+        print(f"[xbl_profile_widget] optional tokens.json near module not usable: {e}")
     local = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "OpenXbox" / "xbox" / "tokens.json"
     paths.append(local)
     return paths
