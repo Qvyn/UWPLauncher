@@ -395,7 +395,7 @@ from pathlib import Path
 
 # === App version & GitHub update config (ADD-ONLY) ===
 # Bump APP_VERSION whenever you ship a new build.
-APP_VERSION = "3.0.4"
+APP_VERSION = "3.0.6"
 
 # GitHub repo for UWPLauncher updates.
 GITHUB_REPO = "Qvyn/UWPLauncher"
@@ -1241,6 +1241,8 @@ def _seed_settings():
         "use_artwork_theme": False,
         # New: remember game grid cover size
         "cover_size": 220,
+        # New: global developer mode switch for exposing advanced options
+        "dev_mode": False,
     }
 
 def load_settings():
@@ -1675,6 +1677,7 @@ class GameEditor(QtWidgets.QDialog):
             "custom_art_path": (self.custom_art_path or "").strip(),
         }
 
+
 class SettingsEditor(QtWidgets.QDialog):
     def __init__(self, parent=None, settings=None):
         super().__init__(parent)
@@ -1683,33 +1686,52 @@ class SettingsEditor(QtWidgets.QDialog):
         self.settings = dict(settings or {})
         form = QtWidgets.QFormLayout(self)
 
+        # Global toggle
         self.chk_discord = QtWidgets.QCheckBox()
         self.chk_discord.setChecked(bool(self.settings.get("discord_enabled", False)))
-        self.client_id = QtWidgets.QLineEdit(self.settings.get("discord_client_id",""))
-        self.details_tpl = QtWidgets.QLineEdit(self.settings.get("discord_details_tpl","{name}"))
-        self.state_tpl = QtWidgets.QLineEdit(self.settings.get("discord_state_tpl","HighPrio={high}  Affinity={aff}  Flags={flags}"))
 
+        # Advanced fields (client id + templates) – visibility controlled by dev_mode
+        self.client_id = QtWidgets.QLineEdit(self.settings.get("discord_client_id", ""))
+        self.details_tpl = QtWidgets.QLineEdit(self.settings.get("discord_details_tpl", "{name}"))
+        self.state_tpl = QtWidgets.QLineEdit(self.settings.get(
+            "discord_state_tpl",
+            "HighPrio={high}  Affinity={aff}  Flags={flags}",
+        ))
+
+        dev_mode = bool(self.settings.get("dev_mode", False))
+
+        # Only show advanced controls when dev_mode is enabled
         form.addRow("Enable Discord RPC", self.chk_discord)
-        form.addRow("Discord Client ID", self.client_id)
-        form.addRow("Details Template", self.details_tpl)
-        form.addRow("State Template", self.state_tpl)
+        if dev_mode:
+            form.addRow("Discord Client ID", self.client_id)
+            form.addRow("Details Template", self.details_tpl)
+            form.addRow("State Template", self.state_tpl)
 
-        hint = QtWidgets.QLabel("Template vars: {name}, {high}, {aff}, {flags}")
-        hint.setStyleSheet("color: gray;")
-        form.addRow(hint)
+            hint = QtWidgets.QLabel("Template vars: {name}, {high}, {aff}, {flags}")
+            hint.setStyleSheet("color: gray;")
+            form.addRow(hint)
+        else:
+            # Hide widgets from layout when not in dev mode, but keep values alive
+            self.client_id.setVisible(False)
+            self.details_tpl.setVisible(False)
+            self.state_tpl.setVisible(False)
 
-        # New: use selected game artwork as full-window background
+        # Use selected game artwork as full-window background
         self.chk_artwork_theme = QtWidgets.QCheckBox()
         self.chk_artwork_theme.setChecked(bool(self.settings.get("use_artwork_theme", False)))
         form.addRow("Use game artwork for theme", self.chk_artwork_theme)
 
-        btns = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.StandardButton.Ok | QtWidgets.QDialogButtonBox.StandardButton.Cancel)
-        # (no artwork button in SettingsEditor; handler not needed here)
+        btns = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.StandardButton.Ok
+            | QtWidgets.QDialogButtonBox.StandardButton.Cancel
+        )
         btns.accepted.connect(self.accept)
         btns.rejected.connect(self.reject)
         form.addRow(btns)
 
     def get_settings(self):
+        # Preserve dev_mode flag as-is; it is controlled from the main settings gear menu
+        dev_mode = bool(self.settings.get("dev_mode", False))
         return {
             "discord_enabled": self.chk_discord.isChecked(),
             "discord_client_id": self.client_id.text().strip(),
@@ -1717,9 +1739,11 @@ class SettingsEditor(QtWidgets.QDialog):
             "discord_state_tpl": self.state_tpl.text().strip() or "HighPrio={high}  Affinity={aff}  Flags={flags}",
             # Persist artwork-driven theme toggle
             "use_artwork_theme": self.chk_artwork_theme.isChecked(),
+            "dev_mode": dev_mode,
         }
 
 # ============= Worker =============
+
 class Worker(QtCore.QObject):
     progress = QtCore.pyqtSignal(str)
     done = QtCore.pyqtSignal(bool, str)
@@ -2188,6 +2212,33 @@ class Main(QtWidgets.QWidget):
                 pass
         act_skin_default.triggered.connect(lambda: _apply_skin('default'))
         act_skin_xbox.triggered.connect(lambda: _apply_skin('xbox_original'))
+
+        # Developer mode toggle (global) – appears under the gear icon
+        self.menu_actions.addSeparator()
+        act_dev_mode = self.menu_actions.addAction('Developer mode')
+        act_dev_mode.setCheckable(True)
+        try:
+            act_dev_mode.setChecked(bool(self.settings.get('dev_mode', False)))
+        except Exception:
+            # If settings aren't available yet, fall back to unchecked
+            act_dev_mode.setChecked(False)
+        def _toggle_dev_mode(checked):
+            try:
+                # Ensure we have a settings dict
+                if not hasattr(self, 'settings') or not isinstance(self.settings, dict):
+                    self.settings = {}
+                self.settings['dev_mode'] = bool(checked)
+                save_settings(self.settings)
+                # Update any debug/status UI that should only be visible in dev mode
+                try:
+                    if hasattr(self, 'lbl_discord'):
+                        self.lbl_discord.setVisible(bool(self.settings.get('dev_mode', False)))
+                except Exception:
+                    pass
+            except Exception:
+                pass
+        act_dev_mode.toggled.connect(_toggle_dev_mode)
+
         # Wire actions to existing slots
         act_add.triggered.connect(self._on_add)
         act_edit.triggered.connect(self._on_edit)
@@ -2238,6 +2289,15 @@ class Main(QtWidgets.QWidget):
         status_row.addStretch(1)
         self.lbl_discord = QtWidgets.QLabel(self._discord_status_text())
         self.lbl_discord.setStyleSheet("color: gray;")
+        # Only show this debug-style status line when developer mode is enabled
+        try:
+            self.lbl_discord.setVisible(bool(self.settings.get("dev_mode", False)))
+        except Exception:
+            # If settings are not yet available for some reason, default to hidden
+            try:
+                self.lbl_discord.setVisible(False)
+            except Exception:
+                pass
         try:
             self.lbl_discord.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight)
         except Exception:

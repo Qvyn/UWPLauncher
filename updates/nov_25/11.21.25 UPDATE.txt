@@ -1,0 +1,2 @@
+Discord RPC Status Label Hidden
+Friends Dock Settings Are Now Persistent
