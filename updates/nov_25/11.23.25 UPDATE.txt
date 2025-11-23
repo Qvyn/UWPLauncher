@@ -1,0 +1,2 @@
+Fixed issue with xbox live sign in not triggering and not signing users in. 
+Added ability to sign out of XBL Profile

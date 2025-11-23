@@ -1884,9 +1884,22 @@ class Main(QtWidgets.QWidget):
             self._append("Xbox Live: checking tokens.json...")
             tokens_path = _discover_tokens_path()
             if not tokens_path:
-                self._append("Xbox sign-in failed: tokens.json not found. Set XBL_TOKENS_PATH or place tokens.json.")
-                QtWidgets.QMessageBox.warning(self, "Xbox Sign-In", "tokens.json not found. Set XBL_TOKENS_PATH or place tokens.json next to the app.")
-                return
+                # No tokens.json yet: actively run the Xbox helper so the user can sign in.
+                self._append("Xbox Live: tokens.json missing, running Xbox helper for sign-in...")
+                try:
+                    refresh_xbl_token(parent=self)
+                except Exception as e:
+                    self._append(f"Xbox helper failed: {e}")
+                tokens_path = _discover_tokens_path()
+                if not tokens_path:
+                    self._append("Xbox sign-in failed: tokens.json not found even after helper.")
+                    QtWidgets.QMessageBox.warning(
+                        self,
+                        "Xbox Sign-In",
+                        "Could not find or create tokens.json.\n"
+                        "Make sure the Xbox helper scripts are present."
+                    )
+                    return
             info = _xbl_tokens_get(tokens_path)
             auth = info.get("Authorization")
             if not auth:
@@ -1908,6 +1921,85 @@ class Main(QtWidgets.QWidget):
         except Exception as e:
             self._append(f"Xbox sign-in failed: {e}")
             QtWidgets.QMessageBox.critical(self, "Xbox Sign-In", f"Failed: {e}")
+
+    def on_xbox_sign_out(self):
+        """
+        Sign out of Xbox Live for this launcher instance.
+        This clears in-memory headers and removes any tokens.json we can find,
+        so future Xbox calls behave as signed-out until the user signs in again.
+        """
+        try:
+            self._append("Xbox Live: signing out...")
+            # Clear in-memory headers and global injection
+            try:
+                self._xbl_headers = None
+            except Exception:
+                pass
+            try:
+                set_global_xbl_headers(None)
+            except Exception:
+                pass
+
+            # Try to locate and remove tokens.json from common locations
+            removed_paths = []
+            try:
+                tokens_path = _discover_tokens_path()
+            except Exception:
+                tokens_path = None
+
+            candidates = []
+            if tokens_path:
+                candidates.append(Path(tokens_path))
+            try:
+                candidates.append(_xbl_user_dir() / "tokens.json")
+            except Exception:
+                pass
+
+            # De-duplicate and remove any existing token files
+            seen = set()
+            for p in candidates:
+                try:
+                    p = Path(p)
+                    key = str(p.resolve())
+                except Exception:
+                    continue
+                if key in seen:
+                    continue
+                seen.add(key)
+                if p.is_file():
+                    try:
+                        p.unlink()
+                        removed_paths.append(str(p))
+                    except Exception as e:
+                        self._append(f"Xbox Live: failed to remove {p}: {e}")
+
+            # Reset environment override
+            try:
+                if "XBL_TOKENS_PATH" in os.environ:
+                    del os.environ["XBL_TOKENS_PATH"]
+            except Exception:
+                pass
+
+            # Reset profile widget UI if present
+            try:
+                if getattr(self, "xbox_profile", None):
+                    self.xbox_profile.set_headers(None)
+                    try:
+                        self.xbox_profile.lbl_name.setText("<i>Not signed in</i>")
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+            if removed_paths:
+                msg = "Signed out of Xbox Live.\nRemoved tokens:\n" + "\n".join(removed_paths)
+            else:
+                msg = "Signed out of Xbox Live.\nNo tokens.json file was found to remove."
+            self._append(msg.replace("\n", " "))
+            QtWidgets.QMessageBox.information(self, "Xbox Sign-Out", msg)
+        except Exception as e:
+            self._append(f"Xbox sign-out failed: {e}")
+            QtWidgets.QMessageBox.critical(self, "Xbox Sign-Out", f"Failed: {e}")
 
     
     
@@ -2033,6 +2125,13 @@ class Main(QtWidgets.QWidget):
         self.btn_nav_xbox.setToolTip("Xbox Sign-In")
         self.btn_nav_xbox.setAutoRaise(True)
         sidebar.addWidget(self.btn_nav_xbox)
+
+        # Xbox sign-out
+        self.btn_nav_xbox_signout = QtWidgets.QToolButton()
+        self.btn_nav_xbox_signout.setText("✖")
+        self.btn_nav_xbox_signout.setToolTip("Xbox Sign-Out")
+        self.btn_nav_xbox_signout.setAutoRaise(True)
+        sidebar.addWidget(self.btn_nav_xbox_signout)
 
         # Xbox profile refresh (gamertag + avatar)
         self.btn_nav_xbox_profile = QtWidgets.QToolButton()
@@ -2371,6 +2470,12 @@ class Main(QtWidgets.QWidget):
             self.btn_nav_xbox.clicked.connect(self.on_xbox_sign_in)
         except Exception:
             pass
+        try:
+            # Xbox sign-out from sidebar
+            self.btn_nav_xbox_signout.clicked.connect(self.on_xbox_sign_out)
+        except Exception:
+            pass
+
         try:
             # Xbox profile refresh (avatar / gamertag) from sidebar
             self.btn_nav_xbox_profile.clicked.connect(self._on_nav_xbox_profile_refresh)
