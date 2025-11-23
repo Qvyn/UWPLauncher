@@ -1,3 +1,4 @@
+# Set settings['xbox_notifications_debug']=True to log raw Xbox notification lines into the log viewer.
 
 # === UWPLauncher_MONO.py (safe-embedded) ===
 # Single-file bundle generated from your originals without changing flow.
@@ -182,7 +183,7 @@ except Exception:
 # === Registered helper modules ===
 _register_module("xbl_auth_device_any", "\nimport argparse, json, sys, time\n\nCANDIDATE_CLIENT_IDS = [\n    \"00000000402B5328\",  # Xbox app (commonly used for MSA device flow)\n    \"000000004C12AE6F\",  # Alternate public Xbox client id\n]\n\ndef run_device_flow(client_id: str, out_path: str) -> bool:\n    try:\n        import msal\n    except ImportError:\n        print(\"This script requires 'msal'. Install with:  py -m pip install msal\", flush=True)\n        return False\n    app = msal.PublicClientApplication(client_id, authority=\"https://login.microsoftonline.com/consumers\")\n    # IMPORTANT: Do NOT include reserved scopes (openid, profile, offline_access)\n    scopes = [\"XboxLive.signin\"]\n    flow = app.initiate_device_flow(scopes=scopes)\n    if \"user_code\" not in flow:\n        return False\n    print(\"\\n=== Microsoft Sign-in ===\")\n    print(\"Go to:\", flow[\"verification_uri\"])\n    print(\"Enter code:\", flow[\"user_code\"])\n    print(\"Then return here; this window will finish automatically.\\n\")\n    result = app.acquire_token_by_device_flow(flow)\n    if \"access_token\" not in result:\n        print(\"Sign-in failed:\", result, file=sys.stderr)\n        return False\n    data = {\n        \"access_token\": result[\"access_token\"],\n        \"refresh_token\": result.get(\"refresh_token\",\"\"),\n        \"expires_at\": int(time.time()) + int(result.get(\"expires_in\", 28800)),\n        \"obtained_at\": int(time.time()),\n        \"token_type\": result.get(\"token_type\",\"Bearer\"),\n        \"scope\": result.get(\"scope\",\"XboxLive.signin\"),\n        \"client_id\": client_id,\n    }\n    with open(out_path, \"w\", encoding=\"utf-8\") as f:\n        json.dump(data, f, indent=2)\n    print(f\"Wrote fresh tokens to: {out_path} (client_id={client_id})\")\n    return True\n\ndef main():\n    ap = argparse.ArgumentParser()\n    ap.add_argument(\"--out\", default=\"tokens.json\", help=\"Where to write tokens.json\")\n    args = ap.parse_args()\n    for cid in CANDIDATE_CLIENT_IDS:\n        ok = run_device_flow(cid, args.out)\n        if ok:\n            return\n        else:\n            print(f\"Client {cid} failed, trying next\u2026\")\n    print(\"All client IDs failed. Ensure you are on a Microsoft Account (MSA) and try again.\", file=sys.stderr)\n    sys.exit(2)\n\nif __name__ == \"__main__\":\n    main()\n", "xbl_auth_device_any.py")
 _register_module("xbl.xbl_auth_device_any", "\nimport argparse, json, sys, time\n\nCANDIDATE_CLIENT_IDS = [\n    \"00000000402B5328\",  # Xbox app (commonly used for MSA device flow)\n    \"000000004C12AE6F\",  # Alternate public Xbox client id\n]\n\ndef run_device_flow(client_id: str, out_path: str) -> bool:\n    try:\n        import msal\n    except ImportError:\n        print(\"This script requires 'msal'. Install with:  py -m pip install msal\", flush=True)\n        return False\n    app = msal.PublicClientApplication(client_id, authority=\"https://login.microsoftonline.com/consumers\")\n    # IMPORTANT: Do NOT include reserved scopes (openid, profile, offline_access)\n    scopes = [\"XboxLive.signin\"]\n    flow = app.initiate_device_flow(scopes=scopes)\n    if \"user_code\" not in flow:\n        return False\n    print(\"\\n=== Microsoft Sign-in ===\")\n    print(\"Go to:\", flow[\"verification_uri\"])\n    print(\"Enter code:\", flow[\"user_code\"])\n    print(\"Then return here; this window will finish automatically.\\n\")\n    result = app.acquire_token_by_device_flow(flow)\n    if \"access_token\" not in result:\n        print(\"Sign-in failed:\", result, file=sys.stderr)\n        return False\n    data = {\n        \"access_token\": result[\"access_token\"],\n        \"refresh_token\": result.get(\"refresh_token\",\"\"),\n        \"expires_at\": int(time.time()) + int(result.get(\"expires_in\", 28800)),\n        \"obtained_at\": int(time.time()),\n        \"token_type\": result.get(\"token_type\",\"Bearer\"),\n        \"scope\": result.get(\"scope\",\"XboxLive.signin\"),\n        \"client_id\": client_id,\n    }\n    with open(out_path, \"w\", encoding=\"utf-8\") as f:\n        json.dump(data, f, indent=2)\n    print(f\"Wrote fresh tokens to: {out_path} (client_id={client_id})\")\n    return True\n\ndef main():\n    ap = argparse.ArgumentParser()\n    ap.add_argument(\"--out\", default=\"tokens.json\", help=\"Where to write tokens.json\")\n    args = ap.parse_args()\n    for cid in CANDIDATE_CLIENT_IDS:\n        ok = run_device_flow(cid, args.out)\n        if ok:\n            return\n        else:\n            print(f\"Client {cid} failed, trying next\u2026\")\n    print(\"All client IDs failed. Ensure you are on a Microsoft Account (MSA) and try again.\", file=sys.stderr)\n    sys.exit(2)\n\nif __name__ == \"__main__\":\n    main()\n", "xbl/xbl_auth_device_any.py")
-_register_module("xbl_friends_dock_INLINE_v5_REFRESH_UI_v2_PATCHED", "\nfrom __future__ import annotations\n\n\n# === BEGIN XBL INLINE LOADER PATCH (no subprocess, works in one-file EXE) ===\nimport sys, os\nfrom pathlib import Path\nimport importlib.util\n\ndef _exe_dir() -> Path:\n    try:\n        return Path(sys.executable).parent\n    except Exception:\n        return Path.cwd()\n\ndef _ensure_exe_dir_on_syspath():\n    p = str(_exe_dir())\n    if p not in sys.path:\n        sys.path.insert(0, p)\n\ndef _load_helper_module_from_path(helper_path: Path):\n    \"\"\"Load a .py module from disk in-process (even when frozen).\"\"\"\n    try:\n        spec = importlib.util.spec_from_file_location(\"xbl_login_standalone_v3_dyn\", str(helper_path))\n        if not spec or not spec.loader:\n            return None\n        mod = importlib.util.module_from_spec(spec)\n        spec.loader.exec_module(mod)\n        return mod\n    except Exception:\n        return None\n\ndef _run_xbl_helper_inline(parent=None) -> bool:\n    \"\"\"\n    Order:\n      1) ENV XBL_HELPER_DIR\n      2) import from xbl package (with exe_dir on sys.path)\n      3) load from file: exe_dir/xbl, _MEIPASS/xbl, cwd/xbl\n    \"\"\"\n    helper_file = \"xbl_login_standalone_v3.py\"\n\n    # 0) ENV override\n    env_dir = os.environ.get(\"XBL_HELPER_DIR\")\n    if env_dir:\n        hp = Path(env_dir) / helper_file\n        if hp.exists():\n            mod = _load_helper_module_from_path(hp)\n            if mod and hasattr(mod, \"main\"):\n                try: mod.main()\n                except SystemExit: pass\n                return True\n\n    # 1) Import as package from sibling xbl/\n    try:\n        _ensure_exe_dir_on_syspath()\n        from xbl import xbl_login_standalone_v3 as _m\n        try: _m.main()\n        except SystemExit: pass\n        return True\n    except Exception:\n        pass\n\n    # 2) Load from common locations\n    candidates = [\n        _exe_dir() / \"xbl\" / helper_file,              # next to EXE\n        Path(getattr(sys, \"_MEIPASS\", _exe_dir())) / \"xbl\" / helper_file if getattr(sys, \"frozen\", False) else None,\n        Path.cwd() / \"xbl\" / helper_file,\n    ]\n    for hp in [c for c in candidates if c]:\n        if hp.exists():\n            mod = _load_helper_module_from_path(hp)\n            if mod and hasattr(mod, \"main\"):\n                try: mod.main()\n                except SystemExit: pass\n                return True\n\n    return False\n\n# Back-compat: if old code calls the legacy helper runner name, route it here\ntry:\n    _run_xbl_login_helper_from_xbl  # type: ignore[name-defined]\nexcept Exception:\n    def _run_xbl_login_helper_from_xbl(parent=None):  # legacy name\n        return _run_xbl_helper_inline(parent)\n# === END XBL INLINE LOADER PATCH ===\n\nimport os, sys, json, time, threading, datetime\nfrom typing import Dict, List, Optional\nfrom pathlib import Path\n\nimport requests\nimport subprocess\nfrom PyQt6 import QtWidgets, QtCore\n\nLOG_FILE = os.environ.get(\"XBL_LOG_FILE\")\n\ndef _log(*a):\n    s = \"[xbl_friends_dock] \" + \" \".join(str(x) for x in a)\n    print(s, flush=True)\n    if LOG_FILE:\n        try:\n            Path(LOG_FILE).parent.mkdir(parents=True, exist_ok=True)\n            with open(LOG_FILE, \"a\", encoding=\"utf-8\") as f:\n                f.write(f\"{datetime.datetime.now().isoformat()} {s}\\n\")\n        except Exception:\n            pass\n\n# ---------- AUTH ----------\nXBL_USER_AUTH = \"https://user.auth.xboxlive.com/user/authenticate\"\nXBL_XSTS_AUTH = \"https://xsts.auth.xboxlive.com/xsts/authorize\"\n\ndef _strip_json_comments(s: str) -> str:\n    out = []; i=0; in_str=False; esc=False\n    while i < len(s):\n        ch = s[i]\n        if in_str:\n            out.append(ch)\n            if esc: esc=False\n            elif ch == '\\\\\\\\': esc=True\n            elif ch == '\"': in_str=False\n            i += 1; continue\n        if ch == '\"': in_str=True; out.append(ch); i += 1; continue\n        if ch == '/' and i+1 < len(s) and s[i+1] in ('/','*'):\n            if s[i+1] == '/':\n                j = s.find('\\\\n', i+2); \n                if j == -1: break\n                i = j + 1; continue\n            else:\n                j = s.find('*/', i+2)\n                if j == -1: break\n                i = j + 2; continue\n        out.append(ch); i += 1\n    return ''.join(out)\n\ndef _find_tokens_path() -> Optional[Path]:\n    env = os.environ.get(\"XBL_TOKENS_PATH\")\n    if env and Path(env).exists(): return Path(env)\n    here = Path(__file__).resolve().parent / \"tokens.json\"\n    if here.exists(): return here\n    cwd = Path(os.getcwd()) / \"tokens.json\"\n    if cwd.exists(): return cwd\n    local = Path(os.environ.get(\"LOCALAPPDATA\", Path.home())) / \"OpenXbox\" / \"xbox\" / \"tokens.json\"\n    if local.exists(): return local\n    return None\n\ndef _post_json(url: str, payload: dict) -> dict:\n    r = requests.post(url, headers={\"Content-Type\":\"application/json\",\"Accept\":\"application/json\",\"Accept-Language\":\"en-US\"}, json=payload, timeout=20)\n    _log(\"POST\", url, \"->\", r.status_code)\n    r.raise_for_status()\n    return r.json()\n\ndef _build_auth_from_tokens(tokens_path: Path) -> Dict[str,str]:\n    raw = tokens_path.read_text(encoding=\"utf-8\", errors=\"ignore\").strip()\n    try:\n        toks = json.loads(raw)\n    except Exception:\n        toks = json.loads(_strip_json_comments(raw))\n    at = toks.get(\"access_token\") or toks.get(\"AccessToken\") or toks.get(\"token\")\n    if not at:\n        raise RuntimeError(\"tokens.json missing access_token\")\n    # user token\n    user_req = {\n        \"RelyingParty\": \"http://auth.xboxlive.com\",\n        \"TokenType\": \"JWT\",\n        \"Properties\": {\n            \"AuthMethod\": \"RPS\",\n            \"SiteName\": \"user.auth.xboxlive.com\",\n            \"RpsTicket\": f\"d={at}\",\n        },\n    }\n    j = _post_json(XBL_USER_AUTH, user_req)\n    user_token = j[\"Token\"]\n    # xsts\n    xsts_req = {\n        \"RelyingParty\": \"http://xboxlive.com\",\n        \"TokenType\": \"JWT\",\n        \"Properties\": {\n            \"UserTokens\": [user_token],\n            \"SandboxId\": \"RETAIL\",\n        },\n    }\n    j2 = _post_json(XBL_XSTS_AUTH, xsts_req)\n    xsts = j2[\"Token\"]\n    uhs = j2[\"DisplayClaims\"][\"xui\"][0][\"uhs\"]\n    return {\n        \"Authorization\": f\"XBL3.0 x={uhs};{xsts}\",\n        \"Accept\": \"application/json\",\n        \"Accept-Language\": \"en-US\",\n    }\n\n# ---------- Service helpers ----------\ndef _request_json(url: str, headers: Dict, versions=(6,5,4,3,2,1), method=\"GET\", json=None, timeout=15):\n    last_exc = None\n    for ver in versions:\n        h = dict(headers); h[\"x-xbl-contract-version\"] = str(ver)\n        try:\n            if method == \"GET\":\n                r = requests.get(url, headers=h, timeout=timeout)\n            else:\n                r = requests.post(url, headers=h, json=json, timeout=timeout)\n            _log(f\"{method} {url} v{ver} ->\", r.status_code)\n            if r.status_code in (400,404):\n                continue\n            if r.status_code == 429:\n                time.sleep(0.5); continue\n            r.raise_for_status()\n            if r.content:\n                try: return r.json()\n                except Exception: return {}\n            return {}\n        except Exception as e:\n            last_exc = e\n    if last_exc: raise last_exc\n    return {}\n\ndef _me_xuid(headers: Dict) -> Optional[str]:\n    try:\n        data = _request_json(\"https://profile.xboxlive.com/users/me/profile/settings?settings=Gamertag\", headers, versions=(3,2,1))\n        pu = (data.get(\"profileUsers\") or [{}])[0]\n        return str(pu.get(\"id\") or \"\")\n    except Exception as e:\n        _log(\"xuid lookup failed:\", repr(e)); return None\n\ndef _fetch_friends(headers: Dict) -> List[Dict]:\n    urls = [\n        \"https://peoplehub.xboxlive.com/users/me/people/social\",\n        \"https://peoplehub.xboxlive.com/users/me/people\",\n        \"https://social.xboxlive.com/users/me/people\",\n    ]\n    me = _me_xuid(headers)\n    if me:\n        urls.insert(0, f\"https://peoplehub.xboxlive.com/users/xuid({me})/people/social\")\n        urls.insert(1, f\"https://peoplehub.xboxlive.com/users/xuid({me})/people/social/summary\")\n\n    for url in urls:\n        try:\n            data = _request_json(url, headers, versions=(6,5,4,3,2,1))\n            arr = data.get(\"people\") or data.get(\"peopleList\") or data.get(\"friends\") or data.get(\"summary\") or []\n            out = []\n            for p in arr or []:\n                x = str(p.get(\"xuid\") or p.get(\"xboxUserId\") or p.get(\"id\") or \"\")\n                g = p.get(\"gamertag\") or p.get(\"modernGamertag\") or p.get(\"preferredName\") or \"\"\n                out.append({\"xuid\": x, \"gamertag\": g})\n            if out:\n                _log(\"friends from\", url, \"->\", len(out))\n                return out\n        except Exception as e:\n            _log(\"friends error for\", url, \":\", repr(e))\n    return []\n\ndef _resolve_gamertags_batch(headers: Dict, xuids: List[str]) -> Dict[str,str]:\n    if not xuids: return {}\n    url = \"https://profile.xboxlive.com/users/batch/profile/settings\"\n    payload = {\"settings\": [\"Gamertag\"], \"userIds\": [f\"xuid({x})\" for x in xuids]}\n    try:\n        data = _request_json(url, headers, versions=(3,2,1), method=\"POST\", json=payload)\n        m = {}\n        for u in data.get(\"profileUsers\", []):\n            uid = str(u.get(\"id\") or \"\")\n            gt = \"\"\n            for s in u.get(\"settings\", []):\n                if s.get(\"id\") == \"Gamertag\":\n                    gt = s.get(\"value\") or \"\"\n            if uid and gt: m[uid] = gt\n        _log(\"resolved gamertags (batch):\", len(m))\n        return m\n    except Exception as e:\n        _log(\"resolve gt batch failed:\", repr(e)); return {}\n\ndef _resolve_gamertags_slow(headers: Dict, xuids: List[str]) -> Dict[str,str]:\n    out = {}\n    for x in xuids:\n        url = f\"https://profile.xboxlive.com/users/xuid({x})/profile/settings?settings=Gamertag\"\n        try:\n            data = _request_json(url, headers, versions=(3,2,1), method=\"GET\")\n            pu = (data.get(\"profileUsers\") or [{}])[0]\n            uid = str(pu.get(\"id\") or \"\")\n            gt = \"\"\n            for s in pu.get(\"settings\", []):\n                if s.get(\"id\") == \"Gamertag\": gt = s.get(\"value\") or \"\"\n            if uid and gt: out[uid] = gt\n        except Exception as e:\n            _log(\"resolve gt slow failed for\", x, \":\", repr(e))\n        time.sleep(0.05)\n    _log(\"resolved gamertags (slow):\", len(out))\n    return out\n\ndef _extract_title_from_presence(data: dict) -> str:\n    for d in data.get(\"devices\", []):\n        for t in d.get(\"titles\", []):\n            name = t.get(\"name\") or t.get(\"titleName\") or \"\"\n            act = t.get(\"activity\") or {}\n            if t.get(\"placement\") == \"Full\" or act.get(\"richPresence\") or act.get(\"broadcastTitle\"):\n                if name: return name\n    return \"\"\n\ndef _presence_batch(headers: Dict, xuids: List[str]) -> Dict[str, Dict]:\n    result = {}\n    try:\n        payload = {\"users\": [f\"xuid({x})\" for x in xuids], \"level\": \"all\"}\n        data = _request_json(\"https://presence.xboxlive.com/users/batch\", headers, versions=(3,2,1), method=\"POST\", json=payload)\n        users = data.get(\"responses\") or data.get(\"users\") or []\n        for u in users:\n            uid = u.get(\"id\") or u.get(\"xuid\") or \"\"\n            if isinstance(uid, str) and uid.startswith(\"xuid(\"): uid = uid[5:-1]\n            state = u.get(\"state\") or u.get(\"presenceState\") or \"\"\n            title = _extract_title_from_presence(u)\n            if uid: result[str(uid)] = {\"state\": state, \"title\": title}\n        if result:\n            _log(\"presence batch OK:\", len(result))\n            return result\n    except Exception as e:\n        _log(\"presence batch failed:\", repr(e))\n    return {}\n\ndef _presence_slow(headers: Dict, xuids: List[str], progress_cb=None) -> Dict[str, Dict]:\n    result = {}\n    for i, x in enumerate(xuids, 1):\n        url = f\"https://userpresence.xboxlive.com/users/xuid({x})?level=all\"\n        try:\n            data = _request_json(url, headers, versions=(3,2,1), method=\"GET\")\n            state = data.get(\"state\") or data.get(\"presenceState\") or \"\"\n            title = _extract_title_from_presence(data)\n            result[str(x)] = {\"state\": state, \"title\": title}\n            if progress_cb and (i % 10 == 0 or i == len(xuids)):\n                progress_cb(i, len(xuids))\n        except Exception as e:\n            _log(\"presence slow failed for\", x, \":\", repr(e))\n        time.sleep(0.045)\n    _log(\"presence slow collected:\", len(result))\n    return result\n\n# ---------- UI (filterable) ----------\n\nclass TransparencyDialog(QtWidgets.QDialog):\n    def __init__(self, dock: QtWidgets.QWidget):\n        super().__init__(dock)\n        self._dock = dock\n        self.setWindowTitle(\"Transparency\")\n        self.setModal(False)\n        self.resize(320, 100)\n\n        v = QtWidgets.QVBoxLayout(self)\n        self.label = QtWidgets.QLabel(self)\n        self.slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal, self)\n        self.slider.setMinimum(20)   # 20% minimum to avoid disappearing\n        self.slider.setMaximum(100)  # 100% = opaque\n        # initialize from current window opacity\n        current = int(round((dock.windowOpacity() or 1.0) * 100))\n        current = max(self.slider.minimum(), min(self.slider.maximum(), current))\n        self.slider.setValue(current)\n        self._update_label(current)\n\n        self.slider.valueChanged.connect(self._on_change)\n\n        btn_row = QtWidgets.QHBoxLayout()\n        self.btnReset = QtWidgets.QPushButton(\"Reset\")\n        self.btnClose = QtWidgets.QPushButton(\"Close\")\n        btn_row.addStretch(1)\n        btn_row.addWidget(self.btnReset)\n        btn_row.addWidget(self.btnClose)\n\n        v.addWidget(self.label)\n        v.addWidget(self.slider)\n        v.addLayout(btn_row)\n\n        self.btnReset.clicked.connect(self._reset)\n        self.btnClose.clicked.connect(self.close)\n\n    def _update_label(self, val: int):\n        self.label.setText(f\"Opacity: {val}%\")\n\n    def _on_change(self, val: int):\n        try:\n            self._dock.setWindowOpacity(val / 100.0)\n            self._update_label(val)\n            try:\n                self._dock._save_settings(opacity_percent=int(val))\n            except Exception as _e:\n                _log(\"settings write warn:\", repr(_e))\n        except Exception as e:\n            _log(\"opacity change error:\", repr(e))\n\n    def _reset(self):\n        self.slider.setValue(100)\n        try:\n            self._dock._save_settings(opacity_percent=100)\n        except Exception as _e:\n            _log(\"settings write warn:\", repr(_e))\n\nclass FriendsDock(QtWidgets.QDialog):\n\n    # --- Cache helpers (ADD-ONLY) ---\n    # --- Settings helpers (ADD-ONLY) ---\n    def _settings_path(self) -> Path:\n        try:\n            return Path(__file__).resolve().parent / \"friends_settings.json\"\n        except Exception:\n            return Path(\"friends_settings.json\")\n\n    def _load_settings(self) -> dict:\n        try:\n            p = self._settings_path()\n            if not p.exists():\n                return {}\n            raw = p.read_text(encoding=\"utf-8\", errors=\"ignore\")\n            return json.loads(raw) if raw.strip() else {}\n        except Exception as e:\n            _log(\"settings load error:\", repr(e))\n            return {}\n\n    def _save_settings(self, **updates):\n        try:\n            data = self._load_settings()\n            data.update(updates)\n            self._settings_path().write_text(json.dumps(data, ensure_ascii=False, indent=0), encoding=\"utf-8\")\n            _log(\"settings saved:\", updates)\n        except Exception as e:\n            _log(\"settings save error:\", repr(e))\n    # --- end settings helpers ---\n\n    def _cache_path(self) -> Path:\n        try:\n            return Path(__file__).resolve().parent / \"friends_cache.json\"\n        except Exception:\n            return Path(\"friends_cache.json\")\n\n    def _save_cached_rows(self, rows):\n        try:\n            data = [{\"gamertag\": gt, \"status\": st, \"game\": gm} for (gt, st, gm) in (rows or [])]\n            self._cache_path().write_text(json.dumps(data, ensure_ascii=False, indent=0), encoding=\"utf-8\")\n            _log(\"cache saved:\", str(self._cache_path()), len(data), \"rows\")\n        except Exception as e:\n            _log(\"cache save error:\", repr(e))\n\n    def _load_cached_rows(self):\n        try:\n            p = self._cache_path()\n            if not p.exists():\n                return False\n            raw = p.read_text(encoding=\"utf-8\", errors=\"ignore\")\n            arr = json.loads(raw) if raw.strip() else []\n            rows = [(d.get(\"gamertag\",\"\"), d.get(\"status\",\"\"), d.get(\"game\",\"\")) for d in arr]\n            if rows:\n                self.sig_set_rows.emit(rows)\n                self.sig_set_status.emit(f\"Restored {len(rows)} cached friends\")\n                _log(\"cache restored:\", len(rows), \"rows\")\n                return True\n            return False\n        except Exception as e:\n            _log(\"cache load error:\", repr(e))\n            return False\n    # --- end cache helpers ---\n\n    sig_set_status = QtCore.pyqtSignal(str)\n    sig_set_rows = QtCore.pyqtSignal(list)   # list of (gt, status, game)\n    sig_enable_btn = QtCore.pyqtSignal(bool)\n    sig_busy = QtCore.pyqtSignal(bool)\n\n    def __init__(self, parent=None):\n        super().__init__(parent)\n        self.setWindowTitle(\"Xbox Friends\")\n        self.resize(720, 740)\n        # Enable minimize button on title bar\n        try:\n            self.setWindowFlags(self.windowFlags() |\n                                QtCore.Qt.WindowType.WindowMinimizeButtonHint |\n                                QtCore.Qt.WindowType.WindowSystemMenuHint)\n        except Exception as _e:\n            _log(\"minimize flag warn:\", repr(_e))\n        self._full_rows: List[tuple] = []\n\n        v = QtWidgets.QVBoxLayout(self)\n        top = QtWidgets.QHBoxLayout()\n        self.lbl = QtWidgets.QLabel(\"Ready.\")\n        self.view = QtWidgets.QComboBox()\n        self.view.addItems([\"All (Online first)\", \"Online only\"])\n        self.btn = QtWidgets.QPushButton(\"Refresh\")\n        top.addWidget(self.lbl); top.addStretch(1); top.addWidget(QtWidgets.QLabel(\"View:\")); top.addWidget(self.view)\n        # \"Always on top\" toggle (ADD-ONLY)\n        self.chkAlwaysOnTop = QtWidgets.QCheckBox(\"Always on top\")\n        top.addWidget(self.chkAlwaysOnTop)\n        # Busy spinner (indeterminate) \u2014 hidden by default\n        self._busy = QtWidgets.QProgressBar(self)\n        self._busy.setRange(0, 0)\n        self._busy.setTextVisible(False)\n        self._busy.setFixedWidth(80)\n        self._busy.hide()\n        top.insertWidget(1, self._busy)\n        # Auto-refresh timer (1 minute; OFF by default)\n        self._autoRefreshTimer = QtCore.QTimer(self)\n        self._autoRefreshTimer.setInterval(60_000)\n        self._autoRefreshTimer.timeout.connect(self.refresh)\n        self.btnAuth = QtWidgets.QPushButton(\"Sign in / Choose tokens.json\")\n        self.btnRefreshTokenOnly = QtWidgets.QPushButton(\"Refresh token only\")\n        top.addWidget(self.btnAuth); top.addWidget(self.btnRefreshTokenOnly); top.addWidget(self.btn)\n\n        # ---- Settings dropdown (cosmetic only) ----\n        # ---- Settings dropdown (cosmetic only) ----\n        self.btnSettings = QtWidgets.QToolButton()\n        self.btnSettings.setText(\"Settings\")\n        self.btnSettings.setPopupMode(QtWidgets.QToolButton.ToolButtonPopupMode.InstantPopup)\n        _menu = QtWidgets.QMenu(self.btnSettings)\n        _a_refresh = _menu.addAction(\"Refresh\"); _a_refresh.triggered.connect(self.refresh)\n        _a_signin  = _menu.addAction(\"Sign in / Choose tokens.json\"); _a_signin.triggered.connect(self._do_auth)\n        _a_rtonly  = _menu.addAction(\"Refresh token only\"); _a_rtonly.triggered.connect(self._refresh_token_only)\n        _a_transp  = _menu.addAction(\"Transparency\u2026\"); _a_transp.triggered.connect(self._open_transparency)\n        self._autoAction = _menu.addAction(\"Auto Refresh (1 minute)\")\n        self._autoAction.setCheckable(True)\n        self._autoAction.setChecked(False)\n        self._autoAction.triggered.connect(self._toggle_auto_refresh)\n        self.btnSettings.setMenu(_menu)\n        top.addWidget(self.btnSettings)\n        try:\n            self.btn.hide(); self.btnAuth.hide(); self.btnRefreshTokenOnly.hide()\n        except Exception:\n            pass\n        # ---- end Settings dropdown ----\n\n        # Hide original buttons (objects remain; signals intact)\n        try:\n            self.btn.hide()\n            self.btnAuth.hide()\n            self.btnRefreshTokenOnly.hide()\n        except Exception as _e:\n            _log(\"hide-buttons warning:\", repr(_e))\n        # ---- end Settings dropdown ----\n\n        v.addLayout(top)\n\n        self.table = QtWidgets.QTableWidget(0, 3)\n        self.table.setHorizontalHeaderLabels([\"Gamertag\", \"Status\", \"Game\"])\n        self.table.horizontalHeader().setStretchLastSection(True)\n        self.table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)\n        v.addWidget(self.table, 1)\n\n        self.btn.clicked.connect(self.refresh)\n        self.btnAuth.clicked.connect(self._do_auth)\n        self.btnRefreshTokenOnly.clicked.connect(self._refresh_token_only)\n        self.view.currentIndexChanged.connect(self._reapply_filter)\n        self.view.currentIndexChanged.connect(lambda _i: self._save_settings(view_index=int(_i)))\n        self.chkAlwaysOnTop.toggled.connect(self._apply_always_on_top)\n\n        self.sig_set_status.connect(self._set_status)\n        self.sig_set_rows.connect(self._receive_full_rows)\n        self.sig_enable_btn.connect(self.btn.setEnabled)\n        self.sig_busy.connect(self._busy.setVisible)\n\n        # Load and apply persistent settings (opacity, auto-refresh)\n        try:\n            _s = self._load_settings()\n            # Apply opacity\n            _op = int(_s.get(\"opacity_percent\", 100))\n            _op = max(20, min(100, _op))\n            self.setWindowOpacity(_op / 100.0)\n            # Apply auto-refresh state\n            _auto = bool(_s.get(\"auto_refresh\", False))\n            if hasattr(self, \"_autoAction\"):\n                self._autoAction.setChecked(_auto)\n            if _auto:\n                self._autoRefreshTimer.start()\n            # Apply view filter index\n            try:\n                _vi = int(_s.get(\"view_index\", 0))\n                if 0 <= _vi < self.view.count():\n                    self.view.setCurrentIndex(_vi)\n            except Exception:\n                pass\n            # Apply 'Always on top'\n            _aot = bool(_s.get(\"always_on_top\", False))\n            if hasattr(self, 'chkAlwaysOnTop'):\n                self.chkAlwaysOnTop.setChecked(_aot)\n            self.setWindowFlag(QtCore.Qt.WindowType.WindowStaysOnTopHint, _aot)\n            self.show()\n        except Exception as _e:\n            _log(\"apply settings warn:\", repr(_e))\n\n        # Show cached rows immediately (if available) before first refresh\n        try:\n            _had_cache = self._load_cached_rows()\n        except Exception as _e:\n            _had_cache = False\n            _log(\"warm restore warn:\", repr(_e))\n        if not _had_cache:\n            QtCore.QTimer.singleShot(150, self.refresh)\n\n    def _set_status(self, s: str):\n        self.lbl.setText(s); _log(\"status:\", s)\n\n    def _receive_full_rows(self, rows: List[tuple]):\n        # rows already have \"Online first\" order\n        self._full_rows = rows\n        self._reapply_filter()\n\n    def _reapply_filter(self):\n        rows = self._full_rows\n        if self.view.currentIndex() == 1:  # Online only\n            rows = [r for r in rows if r[1] == \"Online\"]\n        self._apply_rows(rows)\n\n\n    # --- Status LED helpers (ADD-ONLY) ---\n    def _build_led_icon(self, color: QtCore.Qt.GlobalColor) -> QtWidgets.QStyle.StandardPixmap | QtWidgets.QStyle:\n        # Create a small circular pixmap to act as an LED\n        pm = QtGui.QPixmap(14, 14)\n        pm.fill(QtCore.Qt.GlobalColor.transparent)\n        painter = QtGui.QPainter(pm)\n        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)\n        brush = QtGui.QBrush(color)\n        pen = QtGui.QPen(QtCore.Qt.GlobalColor.black)\n        pen.setWidth(1)\n        painter.setPen(pen)\n        painter.setBrush(brush)\n        painter.drawEllipse(1, 1, 12, 12)\n        painter.end()\n        return QtGui.QIcon(pm)\n\n    def _icon_for_state(self, st: str) -> QtGui.QIcon:\n        try:\n            if not hasattr(self, \"_led_green\"):\n                self._led_green = self._build_led_icon(QtCore.Qt.GlobalColor.green)\n                self._led_red   = self._build_led_icon(QtCore.Qt.GlobalColor.red)\n                self._led_blank = self._build_led_icon(QtCore.Qt.GlobalColor.gray)\n        except Exception:\n            pass\n        s = (st or \"\").strip().lower()\n        if s == \"online\":\n            return getattr(self, \"_led_green\", QtWidgets.QApplication.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_DialogApplyButton))\n        elif s == \"offline\":\n            return getattr(self, \"_led_red\", QtWidgets.QApplication.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_DialogCancelButton))\n        return getattr(self, \"_led_blank\", QtWidgets.QApplication.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_MessageBoxInformation))\n    # --- end Status LED helpers ---\n\n    def _apply_rows(self, rows: List[tuple]):\n        self.table.setSortingEnabled(False)\n        self.table.setRowCount(len(rows))\n        for i,(gt,st,gm) in enumerate(rows):\n            # Gamertag text\n            self.table.setItem(i,0, QtWidgets.QTableWidgetItem(gt))\n            # Status LED (icon only)\n            _status_item = QtWidgets.QTableWidgetItem(\"\")\n            try:\n                _status_item.setIcon(self._icon_for_state(st))\n                _status_item.setText(\"\")  # no text, icon only\n                _status_item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)\n            except Exception:\n                _status_item.setText(st)\n            self.table.setItem(i,1, _status_item)\n            # Game text\n            self.table.setItem(i,2, QtWidgets.QTableWidgetItem(gm))\n        self.table.setSortingEnabled(True)\n        # Keep consistent order: Online first (already), within that alphabetically\n        self.table.sortItems(1, QtCore.Qt.SortOrder.AscendingOrder)\n\n\n    def _apply_always_on_top(self, checked: bool):\n        try:\n            self.setWindowFlag(QtCore.Qt.WindowType.WindowStaysOnTopHint, bool(checked))\n            self.show()  # re-apply flags\n            try:\n                self._save_settings(always_on_top=bool(checked))\n            except Exception as _e:\n                _log(\"settings write warn:\", repr(_e))\n        except Exception as e:\n            _log(\"always on top apply error:\", repr(e))\n\n    def _open_transparency(self):\n        try:\n            if not hasattr(self, \"_transparencyDlg\") or self._transparencyDlg is None:\n                self._transparencyDlg = TransparencyDialog(self)\n            self._transparencyDlg.show()\n            self._transparencyDlg.raise_()\n            self._transparencyDlg.activateWindow()\n        except Exception as e:\n            QtWidgets.QMessageBox.critical(self, \"Error\", f\"Transparency error: {e}\")\n\n    def _refresh_token_only(self):\n        \"\"\"\n        Run xbl_login_standalone_v3.py to refresh tokens, then prompt where the new token was saved.\n        \"\"\"\n        try:\n            self.sig_enable_btn.emit(False)\n            self.sig_set_status.emit(\"Refreshing token via login helper...\")\n\n            base = Path(__file__).resolve().parent\n            helper = base / \"xbl_login_standalone_v3.py\"\n            if not helper.exists():\n                QtWidgets.QMessageBox.critical(self, \"Missing helper\", \"xbl_login_standalone_v3.py not found next to this script.\")\n                self.sig_enable_btn.emit(True)\n                return\n\n            proc = subprocess.run([sys.executable, str(helper)], cwd=str(base), capture_output=True, text=True)\n            out = (proc.stdout or \"\") + \"\\n\" + (proc.stderr or \"\")\n            if proc.returncode != 0:\n                QtWidgets.QMessageBox.critical(self, \"Refresh failed\", f\"Helper exited with {proc.returncode}.\\n\\nOutput (tail):\\n{out[-2000:]}\")\n                self.sig_enable_btn.emit(True)\n                return\n\n            # Parse output to find the saved tokens file\n            tokens_path = None\n            for line in out.splitlines():\n                s = line.strip()\n                if s.startswith(\"[Info] Tokens file:\"):\n                    tokens_path = s.split(\":\", 1)[1].strip()\n                    break\n            if not tokens_path:\n                # Fallback to typical default\n                tokens_path = str(Path(os.environ.get(\"LOCALAPPDATA\", Path.home())) / \"OpenXbox\" / \"xbox\" / \"tokens.json\")\n\n            # Prompt user where it was saved and offer to use it now\n            msg = QtWidgets.QMessageBox(self)\n            msg.setIcon(QtWidgets.QMessageBox.Icon.Information)\n            msg.setWindowTitle(\"Token refreshed\")\n            msg.setText(f\"New tokens were saved here:\\n{tokens_path}\\n\\nUse this tokens.json now?\")\n            yes_btn = msg.addButton(\"Use now\", QtWidgets.QMessageBox.ButtonRole.AcceptRole)\n            no_btn = msg.addButton(\"Cancel\", QtWidgets.QMessageBox.ButtonRole.RejectRole)\n            msg.exec()\n            if msg.clickedButton() is yes_btn:\n                os.environ[\"XBL_TOKENS_PATH\"] = tokens_path\n                self.sig_set_status.emit(\"Using refreshed tokens. Reloading\u2026\")\n                QtCore.QTimer.singleShot(200, self.refresh)\n            else:\n                self.sig_enable_btn.emit(True)\n\n        except Exception as e:\n            QtWidgets.QMessageBox.critical(self, \"Error\", str(e))\n            self.sig_enable_btn.emit(True)\n\n    def _do_auth(self):\n        \"\"\"\n        Opens a small chooser:\n        - Use existing tokens.json (browse & load)\n        - Run device sign-in helper to create a new tokens.json\n        \"\"\"\n        try:\n            default_path = os.environ.get(\"XBL_TOKENS_PATH\") or str((Path.cwd() / \"tokens.json\"))\n            # Simple chooser via QMessageBox-style buttons\n            dlg = QtWidgets.QMessageBox(self)\n            dlg.setIcon(QtWidgets.QMessageBox.Icon.Question)\n            dlg.setWindowTitle(\"Xbox sign-in / tokens.json\")\n            dlg.setText(\"How would you like to provide tokens?\")\n            use_existing = dlg.addButton(\"Use existing tokens.json\u2026\", QtWidgets.QMessageBox.ButtonRole.AcceptRole)\n            run_helper  = dlg.addButton(\"Run device sign-in\u2026\", QtWidgets.QMessageBox.ButtonRole.ActionRole)\n            cancel_btn  = dlg.addButton(\"Cancel\", QtWidgets.QMessageBox.ButtonRole.RejectRole)\n            # PyQt6: exec()\n            dlg.exec()\n            clicked = dlg.clickedButton()\n            if clicked is cancel_btn:\n                return\n\n            if clicked is use_existing:\n                path, _ = QtWidgets.QFileDialog.getOpenFileName(\n                    self, \"Select tokens.json\", default_path, \"JSON Files (*.json);;All Files (*)\"\n                )\n                if not path:\n                    return\n                # point the app to this file and refresh\n                os.environ[\"XBL_TOKENS_PATH\"] = path\n                self.sig_set_status.emit(\"Using selected tokens.json. Reloading\u2026\")\n                QtCore.QTimer.singleShot(200, self.refresh)\n                return\n\n            # Otherwise run helper to produce a new tokens.json\n            save_path, _ = QtWidgets.QFileDialog.getSaveFileName(\n                self, \"Save tokens.json\", default_path, \"JSON Files (*.json);;All Files (*)\"\n            )\n            if not save_path:\n                return\n\n            self.sig_enable_btn.emit(False)\n            self.sig_set_status.emit(\"Starting device sign-in\u2026 follow the console/device code flow\")\n\n            base = Path(__file__).resolve().parent\n            helper = None\n            for name in [\"xbl_auth_device_any.py\", \"xbl_login_standalone_v3.py\", \"xbl_signin_from_oauth_tokens.py\"]:\n                cand = base / name\n                if cand.exists():\n                    helper = str(cand)\n                    break\n            if helper is None:\n                QtWidgets.QMessageBox.critical(\n                    self, \"Missing helper\",\n                    \"Could not find a sign-in helper (xbl_auth_device_any.py or xbl_login_standalone_v3.py).\"\n                )\n                self.sig_enable_btn.emit(True)\n                return\n\n            import subprocess, sys\n            proc = subprocess.run([sys.executable, helper, \"--out\", save_path], cwd=str(base))\n            if proc.returncode != 0:\n                QtWidgets.QMessageBox.critical(self, \"Sign-in failed\", f\"Auth helper exited with code {proc.returncode}.\")\n                self.sig_enable_btn.emit(True)\n                return\n\n            os.environ[\"XBL_TOKENS_PATH\"] = save_path\n            self.sig_set_status.emit(\"Token saved. Reloading\u2026\")\n            QtCore.QTimer.singleShot(200, self.refresh)\n\n        except Exception as e:\n            QtWidgets.QMessageBox.critical(self, \"Error\", str(e))\n            self.sig_enable_btn.emit(True)\n\n\n    def _toggle_auto_refresh(self):\n        try:\n            if self._autoRefreshTimer.isActive():\n                self._autoRefreshTimer.stop()\n                if hasattr(self, '_autoAction') and self._autoAction:\n                    self._autoAction.setChecked(False)\n                self.sig_set_status.emit(\"Auto Refresh: OFF\")\n                try:\n                    self._save_settings(auto_refresh=False)\n                except Exception as _e:\n                    _log(\"settings write warn:\", repr(_e))\n            else:\n                self._autoRefreshTimer.start()\n                if hasattr(self, '_autoAction') and self._autoAction:\n                    self._autoAction.setChecked(True)\n                self.sig_set_status.emit(\"Auto Refresh: ON (every 1 min)\")\n                try:\n                    self._save_settings(auto_refresh=True)\n                except Exception as _e:\n                    _log(\"settings write warn:\", repr(_e))\n        except Exception as e:\n            QtWidgets.QMessageBox.critical(self, \"Auto Refresh Error\", str(e))\n\n    def refresh(self):\n        self.sig_enable_btn.emit(False); self.sig_set_status.emit(\"\"); self.sig_busy.emit(True); self.sig_set_rows.emit([])\n\n        def _run():\n            try:\n                # ----- auth\n                tpath = _find_tokens_path()\n                if not tpath:\n                    raise RuntimeError(\"tokens.json not found. Set XBL_TOKENS_PATH or place tokens.json next to the script.\")\n                _log(\"Using tokens.json at:\", str(tpath))\n                headers = _build_auth_from_tokens(tpath)\n\n                # ----- friends list\n                friends = _fetch_friends(headers)\n                if not friends:\n                    raise RuntimeError(\"No friends returned (service/permissions).\")\n\n                self.sig_set_status.emit(f\"{len(friends)} friends (resolving names...)\")\n\n                # ----- gamertags\n                missing = [f[\"xuid\"] for f in friends if f.get(\"xuid\") and not f.get(\"gamertag\")]\n                gmap = _resolve_gamertags_batch(headers, missing) if missing else {}\n                if missing and len(gmap) < len(missing):\n                    slow_needed = [x for x in missing if x not in gmap]\n                    if slow_needed:\n                        gmap.update(_resolve_gamertags_slow(headers, slow_needed))\n                for f in friends:\n                    if not f.get(\"gamertag\"):\n                        f[\"gamertag\"] = gmap.get(f.get(\"xuid\",\"\"), f.get(\"xuid\",\"\"))\n\n                self.sig_set_status.emit(f\"{len(friends)} friends (loading presence...)\")\n\n                # ----- presence\n                xuids = [f[\"xuid\"] for f in friends if f.get(\"xuid\")]\n                pres = _presence_batch(headers, xuids) if xuids else {}\n                if xuids and len(pres) < len(xuids):\n                    def _progress(i, n):\n                        self.sig_set_status.emit(f\"{len(friends)} friends (presence {i}/{n})\")\n                    pres.update(_presence_fast(headers, [x for x in xuids if x not in pres], _progress, workers=24))\n\n                rows = []\n                for f in friends:\n                    x = f.get(\"xuid\",\"\"); gt = f.get(\"gamertag\") or x\n                    p = pres.get(x, {})\n                    state = \"Online\" if str(p.get(\"state\",\"\")).lower()==\"online\" else (\"Offline\" if p else \"\")\n                    title = p.get(\"title\",\"\")\n                    rows.append((gt, state, title))\n                rows.sort(key=lambda r: (r[1]!=\"Online\", r[0].lower()))\n\n                self.sig_set_rows.emit(rows)\n                try:\n                    self._save_cached_rows(rows)\n                except Exception as _e:\n                    _log(\"cache post-refresh warn:\", repr(_e))\n                self.sig_set_status.emit(f\"{len(rows)} friends (presence applied)\")\n                self.sig_busy.emit(False)\n                self.sig_enable_btn.emit(True)\n\n            except Exception as e:\n                _log(\"Error:\", repr(e))\n                self.sig_set_status.emit(f\"Error: {e.__class__.__name__}: {e}\")\n                self.sig_busy.emit(False)\n                self.sig_enable_btn.emit(True)\n\n        threading.Thread(target=_run, daemon=True).start()\ndef _presence_fast(headers: Dict, xuids: List[str], progress_cb=None, workers: int = 24) -> Dict[str, Dict]:\n    \"\"\"Concurrent presence fetch using a shared Session. Keeps requests gentle but parallel.\"\"\"\n    import concurrent.futures, time, math\n    result = {}\n    if not xuids:\n        return result\n\n    # Shared session with connection pool\n    sess = requests.Session()\n    try:\n        from requests.adapters import HTTPAdapter\n        from urllib3.util.retry import Retry\n        adapter = HTTPAdapter(pool_connections=workers*2, pool_maxsize=workers*2, max_retries=0)\n        sess.mount(\"https://\", adapter); sess.mount(\"http://\", adapter)\n    except Exception:\n        pass\n\n    base_headers = dict(headers)\n    base_headers[\"x-xbl-contract-version\"] = \"3\"\n    url_tpl = \"https://userpresence.xboxlive.com/users/xuid({})?level=all\"\n\n    # Gentle concurrency: cap workers, backoff on 429, shorter timeout\n    def fetch_one(xuid: str):\n        url = url_tpl.format(xuid)\n        tries = 0\n        delay = 0.3\n        while True:\n            tries += 1\n            try:\n                r = sess.get(url, headers=base_headers, timeout=8)\n                status = r.status_code\n                if status == 429:\n                    # Too many requests; back off a bit and retry\n                    time.sleep(delay)\n                    delay = min(delay * 1.6, 3.0)\n                    if tries < 5:\n                        continue\n                if status in (400, 404):\n                    return xuid, {}\n                r.raise_for_status()\n                j = r.json() if r.content else {}\n                state = j.get(\"state\") or j.get(\"presenceState\") or \"\"\n                title = _extract_title_from_presence(j)\n                return xuid, {\"state\": state, \"title\": title}\n            except Exception:\n                if tries < 3:\n                    time.sleep(delay)\n                    delay = min(delay * 1.6, 3.0)\n                    continue\n                return xuid, {}\n\n    done = 0\n    report_every = max(10, len(xuids)//15)  # ~15 updates max\n    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(workers, 48))) as ex:\n        for xuid, info in ex.map(fetch_one, xuids):\n            done += 1\n            if info:\n                result[str(xuid)] = info\n            if progress_cb and (done % report_every == 0 or done == len(xuids)):\n                progress_cb(done, len(xuids))\n\n    _log(\"presence fast collected:\", len(result))\n    try:\n        sess.close()\n    except Exception:\n        pass\n    return result\n\n\ndef main():\n    _log(\"Starting Xbox Friends Dock (INLINE v5)\")\n    app = QtWidgets.QApplication(sys.argv)\n    w = FriendsDock(); w.show()\n    rc = app.exec()\n    _log(\"App exit code:\", rc); sys.exit(rc)\n\nif __name__ == \"__main__\":\n    main()", "xbl_friends_dock_INLINE_v5_REFRESH_UI_v2_PATCHED.py")
+_register_module("xbl_friends_dock_INLINE_v5_REFRESH_UI_v2_PATCHED", "\nfrom __future__ import annotations\n\n\n# === BEGIN XBL INLINE LOADER PATCH (no subprocess, works in one-file EXE) ===\nimport sys, os\nfrom pathlib import Path\nimport importlib.util\n\ndef _exe_dir() -> Path:\n    try:\n        return Path(sys.executable).parent\n    except Exception:\n        return Path.cwd()\n\ndef _ensure_exe_dir_on_syspath():\n    p = str(_exe_dir())\n    if p not in sys.path:\n        sys.path.insert(0, p)\n\ndef _load_helper_module_from_path(helper_path: Path):\n    \"\"\"Load a .py module from disk in-process (even when frozen).\"\"\"\n    try:\n        spec = importlib.util.spec_from_file_location(\"xbl_login_standalone_v3_dyn\", str(helper_path))\n        if not spec or not spec.loader:\n            return None\n        mod = importlib.util.module_from_spec(spec)\n        spec.loader.exec_module(mod)\n        return mod\n    except Exception:\n        return None\n\ndef _run_xbl_helper_inline(parent=None) -> bool:\n    \"\"\"\n    Order:\n      1) ENV XBL_HELPER_DIR\n      2) import from xbl package (with exe_dir on sys.path)\n      3) load from file: exe_dir/xbl, _MEIPASS/xbl, cwd/xbl\n    \"\"\"\n    helper_file = \"xbl_login_standalone_v3.py\"\n\n    # 0) ENV override\n    env_dir = os.environ.get(\"XBL_HELPER_DIR\")\n    if env_dir:\n        hp = Path(env_dir) / helper_file\n        if hp.exists():\n            mod = _load_helper_module_from_path(hp)\n            if mod and hasattr(mod, \"main\"):\n                try: mod.main()\n                except SystemExit: pass\n                return True\n\n    # 1) Import as package from sibling xbl/\n    try:\n        _ensure_exe_dir_on_syspath()\n        from xbl import xbl_login_standalone_v3 as _m\n        try: _m.main()\n        except SystemExit: pass\n        return True\n    except Exception:\n        pass\n\n    # 2) Load from common locations\n    candidates = [\n        _exe_dir() / \"xbl\" / helper_file,              # next to EXE\n        Path(getattr(sys, \"_MEIPASS\", _exe_dir())) / \"xbl\" / helper_file if getattr(sys, \"frozen\", False) else None,\n        Path.cwd() / \"xbl\" / helper_file,\n    ]\n    for hp in [c for c in candidates if c]:\n        if hp.exists():\n            mod = _load_helper_module_from_path(hp)\n            if mod and hasattr(mod, \"main\"):\n                try: mod.main()\n                except SystemExit: pass\n                return True\n\n    return False\n\n# Back-compat: if old code calls the legacy helper runner name, route it here\ntry:\n    _run_xbl_login_helper_from_xbl  # type: ignore[name-defined]\nexcept Exception:\n    def _run_xbl_login_helper_from_xbl(parent=None):  # legacy name\n        return _run_xbl_helper_inline(parent)\n# === END XBL INLINE LOADER PATCH ===\n\nimport os, sys, json, time, threading, datetime\nfrom typing import Dict, List, Optional\nfrom pathlib import Path\n\nimport requests\nimport subprocess\nfrom PyQt6 import QtWidgets, QtCore\n\nLOG_FILE = os.environ.get(\"XBL_LOG_FILE\")\n\ndef _log(*a):\n    s = \"[xbl_friends_dock] \" + \" \".join(str(x) for x in a)\n    print(s, flush=True)\n    if LOG_FILE:\n        try:\n            Path(LOG_FILE).parent.mkdir(parents=True, exist_ok=True)\n            with open(LOG_FILE, \"a\", encoding=\"utf-8\") as f:\n                f.write(f\"{datetime.datetime.now().isoformat()} {s}\\n\")\n        except Exception:\n            pass\n\n# ---------- AUTH ----------\nXBL_USER_AUTH = \"https://user.auth.xboxlive.com/user/authenticate\"\nXBL_XSTS_AUTH = \"https://xsts.auth.xboxlive.com/xsts/authorize\"\n\ndef _strip_json_comments(s: str) -> str:\n    out = []; i=0; in_str=False; esc=False\n    while i < len(s):\n        ch = s[i]\n        if in_str:\n            out.append(ch)\n            if esc: esc=False\n            elif ch == '\\\\\\\\': esc=True\n            elif ch == '\"': in_str=False\n            i += 1; continue\n        if ch == '\"': in_str=True; out.append(ch); i += 1; continue\n        if ch == '/' and i+1 < len(s) and s[i+1] in ('/','*'):\n            if s[i+1] == '/':\n                j = s.find('\\\\n', i+2); \n                if j == -1: break\n                i = j + 1; continue\n            else:\n                j = s.find('*/', i+2)\n                if j == -1: break\n                i = j + 2; continue\n        out.append(ch); i += 1\n    return ''.join(out)\n\ndef _find_tokens_path() -> Optional[Path]:\n    env = os.environ.get(\"XBL_TOKENS_PATH\")\n    if env and Path(env).exists(): return Path(env)\n    here = Path(__file__).resolve().parent / \"tokens.json\"\n    if here.exists(): return here\n    cwd = Path(os.getcwd()) / \"tokens.json\"\n    if cwd.exists(): return cwd\n    local = Path(os.environ.get(\"LOCALAPPDATA\", Path.home())) / \"OpenXbox\" / \"xbox\" / \"tokens.json\"\n    if local.exists(): return local\n    return None\n\ndef _post_json(url: str, payload: dict) -> dict:\n    r = requests.post(url, headers={\"Content-Type\":\"application/json\",\"Accept\":\"application/json\",\"Accept-Language\":\"en-US\"}, json=payload, timeout=20)\n    _log(\"POST\", url, \"->\", r.status_code)\n    r.raise_for_status()\n    return r.json()\n\ndef _build_auth_from_tokens(tokens_path: Path) -> Dict[str,str]:\n    raw = tokens_path.read_text(encoding=\"utf-8\", errors=\"ignore\").strip()\n    try:\n        toks = json.loads(raw)\n    except Exception:\n        toks = json.loads(_strip_json_comments(raw))\n    at = toks.get(\"access_token\") or toks.get(\"AccessToken\") or toks.get(\"token\")\n    if not at:\n        raise RuntimeError(\"tokens.json missing access_token\")\n    # user token\n    user_req = {\n        \"RelyingParty\": \"http://auth.xboxlive.com\",\n        \"TokenType\": \"JWT\",\n        \"Properties\": {\n            \"AuthMethod\": \"RPS\",\n            \"SiteName\": \"user.auth.xboxlive.com\",\n            \"RpsTicket\": f\"d={at}\",\n        },\n    }\n    j = _post_json(XBL_USER_AUTH, user_req)\n    user_token = j[\"Token\"]\n    # xsts\n    xsts_req = {\n        \"RelyingParty\": \"http://xboxlive.com\",\n        \"TokenType\": \"JWT\",\n        \"Properties\": {\n            \"UserTokens\": [user_token],\n            \"SandboxId\": \"RETAIL\",\n        },\n    }\n    j2 = _post_json(XBL_XSTS_AUTH, xsts_req)\n    xsts = j2[\"Token\"]\n    uhs = j2[\"DisplayClaims\"][\"xui\"][0][\"uhs\"]\n    return {\n        \"Authorization\": f\"XBL3.0 x={uhs};{xsts}\",\n        \"Accept\": \"application/json\",\n        \"Accept-Language\": \"en-US\",\n    }\n\n# ---------- Service helpers ----------\ndef _request_json(url: str, headers: Dict, versions=(6,5,4,3,2,1), method=\"GET\", json=None, timeout=15):\n    last_exc = None\n    for ver in versions:\n        h = dict(headers); h[\"x-xbl-contract-version\"] = str(ver)\n        try:\n            if method == \"GET\":\n                r = requests.get(url, headers=h, timeout=timeout)\n            else:\n                r = requests.post(url, headers=h, json=json, timeout=timeout)\n            _log(f\"{method} {url} v{ver} ->\", r.status_code)\n            if r.status_code in (400,404):\n                continue\n            if r.status_code == 429:\n                time.sleep(0.5); continue\n            r.raise_for_status()\n            if r.content:\n                try: return r.json()\n                except Exception: return {}\n            return {}\n        except Exception as e:\n            last_exc = e\n    if last_exc: raise last_exc\n    return {}\n\ndef _me_xuid(headers: Dict) -> Optional[str]:\n    try:\n        data = _request_json(\"https://profile.xboxlive.com/users/me/profile/settings?settings=Gamertag\", headers, versions=(3,2,1))\n        pu = (data.get(\"profileUsers\") or [{}])[0]\n        return str(pu.get(\"id\") or \"\")\n    except Exception as e:\n        _log(\"xuid lookup failed:\", repr(e)); return None\n\ndef _fetch_friends(headers: Dict) -> List[Dict]:\n    urls = [\n        \"https://peoplehub.xboxlive.com/users/me/people/social\",\n        \"https://peoplehub.xboxlive.com/users/me/people\",\n        \"https://social.xboxlive.com/users/me/people\",\n    ]\n    me = _me_xuid(headers)\n    if me:\n        urls.insert(0, f\"https://peoplehub.xboxlive.com/users/xuid({me})/people/social\")\n        urls.insert(1, f\"https://peoplehub.xboxlive.com/users/xuid({me})/people/social/summary\")\n\n    for url in urls:\n        try:\n            data = _request_json(url, headers, versions=(6,5,4,3,2,1))\n            arr = data.get(\"people\") or data.get(\"peopleList\") or data.get(\"friends\") or data.get(\"summary\") or []\n            out = []\n            for p in arr or []:\n                x = str(p.get(\"xuid\") or p.get(\"xboxUserId\") or p.get(\"id\") or \"\")\n                g = p.get(\"gamertag\") or p.get(\"modernGamertag\") or p.get(\"preferredName\") or \"\"\n                out.append({\"xuid\": x, \"gamertag\": g})\n            if out:\n                _log(\"friends from\", url, \"->\", len(out))\n                return out\n        except Exception as e:\n            _log(\"friends error for\", url, \":\", repr(e))\n    return []\n\ndef _resolve_gamertags_batch(headers: Dict, xuids: List[str]) -> Dict[str,str]:\n    if not xuids: return {}\n    url = \"https://profile.xboxlive.com/users/batch/profile/settings\"\n    payload = {\"settings\": [\"Gamertag\"], \"userIds\": [f\"xuid({x})\" for x in xuids]}\n    try:\n        data = _request_json(url, headers, versions=(3,2,1), method=\"POST\", json=payload)\n        m = {}\n        for u in data.get(\"profileUsers\", []):\n            uid = str(u.get(\"id\") or \"\")\n            gt = \"\"\n            for s in u.get(\"settings\", []):\n                if s.get(\"id\") == \"Gamertag\":\n                    gt = s.get(\"value\") or \"\"\n            if uid and gt: m[uid] = gt\n        _log(\"resolved gamertags (batch):\", len(m))\n        return m\n    except Exception as e:\n        _log(\"resolve gt batch failed:\", repr(e)); return {}\n\ndef _resolve_gamertags_slow(headers: Dict, xuids: List[str]) -> Dict[str,str]:\n    out = {}\n    for x in xuids:\n        url = f\"https://profile.xboxlive.com/users/xuid({x})/profile/settings?settings=Gamertag\"\n        try:\n            data = _request_json(url, headers, versions=(3,2,1), method=\"GET\")\n            pu = (data.get(\"profileUsers\") or [{}])[0]\n            uid = str(pu.get(\"id\") or \"\")\n            gt = \"\"\n            for s in pu.get(\"settings\", []):\n                if s.get(\"id\") == \"Gamertag\": gt = s.get(\"value\") or \"\"\n            if uid and gt: out[uid] = gt\n        except Exception as e:\n            _log(\"resolve gt slow failed for\", x, \":\", repr(e))\n        time.sleep(0.05)\n    _log(\"resolved gamertags (slow):\", len(out))\n    return out\n\ndef _extract_title_from_presence(data: dict) -> str:\n    for d in data.get(\"devices\", []):\n        for t in d.get(\"titles\", []):\n            name = t.get(\"name\") or t.get(\"titleName\") or \"\"\n            act = t.get(\"activity\") or {}\n            if t.get(\"placement\") == \"Full\" or act.get(\"richPresence\") or act.get(\"broadcastTitle\"):\n                if name: return name\n    return \"\"\n\ndef _presence_batch(headers: Dict, xuids: List[str]) -> Dict[str, Dict]:\n    result = {}\n    try:\n        payload = {\"users\": [f\"xuid({x})\" for x in xuids], \"level\": \"all\"}\n        data = _request_json(\"https://presence.xboxlive.com/users/batch\", headers, versions=(3,2,1), method=\"POST\", json=payload)\n        users = data.get(\"responses\") or data.get(\"users\") or []\n        for u in users:\n            uid = u.get(\"id\") or u.get(\"xuid\") or \"\"\n            if isinstance(uid, str) and uid.startswith(\"xuid(\"): uid = uid[5:-1]\n            state = u.get(\"state\") or u.get(\"presenceState\") or \"\"\n            title = _extract_title_from_presence(u)\n            if uid: result[str(uid)] = {\"state\": state, \"title\": title}\n        if result:\n            _log(\"presence batch OK:\", len(result))\n            return result\n    except Exception as e:\n        _log(\"presence batch failed:\", repr(e))\n    return {}\n\ndef _presence_slow(headers: Dict, xuids: List[str], progress_cb=None) -> Dict[str, Dict]:\n    result = {}\n    for i, x in enumerate(xuids, 1):\n        url = f\"https://userpresence.xboxlive.com/users/xuid({x})?level=all\"\n        try:\n            data = _request_json(url, headers, versions=(3,2,1), method=\"GET\")\n            state = data.get(\"state\") or data.get(\"presenceState\") or \"\"\n            title = _extract_title_from_presence(data)\n            result[str(x)] = {\"state\": state, \"title\": title}\n            if progress_cb and (i % 10 == 0 or i == len(xuids)):\n                progress_cb(i, len(xuids))\n        except Exception as e:\n            _log(\"presence slow failed for\", x, \":\", repr(e))\n        time.sleep(0.045)\n    _log(\"presence slow collected:\", len(result))\n    return result\n\n# ---------- UI (filterable) ----------\n\nclass TransparencyDialog(QtWidgets.QDialog):\n    def __init__(self, dock: QtWidgets.QWidget):\n        super().__init__(dock)\n        self._dock = dock\n        self.setWindowTitle(\"Transparency\")\n        self.setModal(False)\n        self.resize(320, 100)\n\n        v = QtWidgets.QVBoxLayout(self)\n        self.label = QtWidgets.QLabel(self)\n        self.slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal, self)\n        self.slider.setMinimum(20)   # 20% minimum to avoid disappearing\n        self.slider.setMaximum(100)  # 100% = opaque\n        # initialize from current window opacity\n        current = int(round((dock.windowOpacity() or 1.0) * 100))\n        current = max(self.slider.minimum(), min(self.slider.maximum(), current))\n        self.slider.setValue(current)\n        self._update_label(current)\n\n        self.slider.valueChanged.connect(self._on_change)\n\n        btn_row = QtWidgets.QHBoxLayout()\n        self.btnReset = QtWidgets.QPushButton(\"Reset\")\n        self.btnClose = QtWidgets.QPushButton(\"Close\")\n        btn_row.addStretch(1)\n        btn_row.addWidget(self.btnReset)\n        btn_row.addWidget(self.btnClose)\n\n        v.addWidget(self.label)\n        v.addWidget(self.slider)\n        v.addLayout(btn_row)\n\n        self.btnReset.clicked.connect(self._reset)\n        self.btnClose.clicked.connect(self.close)\n\n    def _update_label(self, val: int):\n        self.label.setText(f\"Opacity: {val}%\")\n\n    def _on_change(self, val: int):\n        try:\n            self._dock.setWindowOpacity(val / 100.0)\n            self._update_label(val)\n            try:\n                self._dock._save_settings(opacity_percent=int(val))\n            except Exception as _e:\n                _log(\"settings write warn:\", repr(_e))\n        except Exception as e:\n            _log(\"opacity change error:\", repr(e))\n\n    def _reset(self):\n        self.slider.setValue(100)\n        try:\n            self._dock._save_settings(opacity_percent=100)\n        except Exception as _e:\n            _log(\"settings write warn:\", repr(_e))\n\nclass FriendsDock(QtWidgets.QDialog):\n\n    # --- Cache helpers (ADD-ONLY) ---\n    # --- Settings helpers (ADD-ONLY) ---\n    def _settings_path(self) -> Path:\n        try:\n            return Path(__file__).resolve().parent / \"friends_settings.json\"\n        except Exception:\n            return Path(\"friends_settings.json\")\n\n    def _load_settings(self) -> dict:\n        try:\n            p = self._settings_path()\n            if not p.exists():\n                return {}\n            raw = p.read_text(encoding=\"utf-8\", errors=\"ignore\")\n            return json.loads(raw) if raw.strip() else {}\n        except Exception as e:\n            _log(\"settings load error:\", repr(e))\n            return {}\n\n    def _save_settings(self, **updates):\n        try:\n            data = self._load_settings()\n            data.update(updates)\n            self._settings_path().write_text(json.dumps(data, ensure_ascii=False, indent=0), encoding=\"utf-8\")\n            _log(\"settings saved:\", updates)\n        except Exception as e:\n            _log(\"settings save error:\", repr(e))\n    # --- end settings helpers ---\n\n    def _cache_path(self) -> Path:\n        try:\n            return Path(__file__).resolve().parent / \"friends_cache.json\"\n        except Exception:\n            return Path(\"friends_cache.json\")\n\n    def _save_cached_rows(self, rows):\n        try:\n            data = [{\"gamertag\": gt, \"status\": st, \"game\": gm} for (gt, st, gm) in (rows or [])]\n            self._cache_path().write_text(json.dumps(data, ensure_ascii=False, indent=0), encoding=\"utf-8\")\n            _log(\"cache saved:\", str(self._cache_path()), len(data), \"rows\")\n        except Exception as e:\n            _log(\"cache save error:\", repr(e))\n\n    def _load_cached_rows(self):\n        try:\n            p = self._cache_path()\n            if not p.exists():\n                return False\n            raw = p.read_text(encoding=\"utf-8\", errors=\"ignore\")\n            arr = json.loads(raw) if raw.strip() else []\n            rows = [(d.get(\"gamertag\",\"\"), d.get(\"status\",\"\"), d.get(\"game\",\"\")) for d in arr]\n            if rows:\n                self.sig_set_rows.emit(rows)\n                self.sig_set_status.emit(f\"Restored {len(rows)} cached friends\")\n                _log(\"cache restored:\", len(rows), \"rows\")\n                return True\n            return False\n        except Exception as e:\n            _log(\"cache load error:\", repr(e))\n            return False\n    # --- end cache helpers ---\n\n    sig_set_status = QtCore.pyqtSignal(str)\n    sig_set_rows = QtCore.pyqtSignal(list)   # list of (gt, status, game)\n    sig_enable_btn = QtCore.pyqtSignal(bool)\n    sig_busy = QtCore.pyqtSignal(bool)\n\n    def __init__(self, parent=None):\n        super().__init__(parent)\n        self.setWindowTitle(\"Xbox Friends\")\n        self.resize(720, 740)\n        # Enable minimize button on title bar\n        try:\n            self.setWindowFlags(self.windowFlags() |\n                                QtCore.Qt.WindowType.WindowMinimizeButtonHint |\n                                QtCore.Qt.WindowType.WindowSystemMenuHint)\n        except Exception as _e:\n            _log(\"minimize flag warn:\", repr(_e))\n        self._full_rows: List[tuple] = []\n\n        v = QtWidgets.QVBoxLayout(self)\n        top = QtWidgets.QHBoxLayout()\n        self.lbl = QtWidgets.QLabel(\"Ready.\")\n        self.view = QtWidgets.QComboBox()\n        self.view.addItems([\"All (Online first)\", \"Online only\"])\n        self.btn = QtWidgets.QPushButton(\"Refresh\")\n        top.addWidget(self.lbl); top.addStretch(1); top.addWidget(QtWidgets.QLabel(\"View:\")); top.addWidget(self.view)\n        # \"Always on top\" toggle (ADD-ONLY)\n        self.chkAlwaysOnTop = QtWidgets.QCheckBox(\"Always on top\")\n        top.addWidget(self.chkAlwaysOnTop)\n        # Busy spinner (indeterminate) — hidden by default\n        self._busy = QtWidgets.QProgressBar(self)\n        self._busy.setRange(0, 0)\n        self._busy.setTextVisible(False)\n        self._busy.setFixedWidth(80)\n        self._busy.hide()\n        top.insertWidget(1, self._busy)\n        # Auto-refresh timer (1 minute; OFF by default)\n        self._autoRefreshTimer = QtCore.QTimer(self)\n        self._autoRefreshTimer.setInterval(60_000)\n        self._autoRefreshTimer.timeout.connect(self.refresh)\n        self.btnAuth = QtWidgets.QPushButton(\"Sign in / Choose tokens.json\")\n        self.btnRefreshTokenOnly = QtWidgets.QPushButton(\"Refresh token only\")\n        top.addWidget(self.btnAuth); top.addWidget(self.btnRefreshTokenOnly); top.addWidget(self.btn)\n\n        # ---- Settings dropdown (cosmetic only) ----\n        # ---- Settings dropdown (cosmetic only) ----\n        self.btnSettings = QtWidgets.QToolButton()\n        self.btnSettings.setText(\"Settings\")\n        self.btnSettings.setPopupMode(QtWidgets.QToolButton.ToolButtonPopupMode.InstantPopup)\n        _menu = QtWidgets.QMenu(self.btnSettings)\n        _a_refresh = _menu.addAction(\"Refresh\"); _a_refresh.triggered.connect(self.refresh)\n        _a_signin  = _menu.addAction(\"Sign in / Choose tokens.json\"); _a_signin.triggered.connect(self._do_auth)\n        _a_rtonly  = _menu.addAction(\"Refresh token only\"); _a_rtonly.triggered.connect(self._refresh_token_only)\n        _a_transp  = _menu.addAction(\"Transparency…\"); _a_transp.triggered.connect(self._open_transparency)\n        self._autoAction = _menu.addAction(\"Auto Refresh (1 minute)\")\n        self._autoAction.setCheckable(True)\n        self._autoAction.setChecked(False)\n        self._autoAction.triggered.connect(self._toggle_auto_refresh)\n        self.btnSettings.setMenu(_menu)\n        top.addWidget(self.btnSettings)\n        try:\n            self.btn.hide(); self.btnAuth.hide(); self.btnRefreshTokenOnly.hide()\n        except Exception:\n            pass\n        # ---- end Settings dropdown ----\n\n        # Hide original buttons (objects remain; signals intact)\n        try:\n            self.btn.hide()\n            self.btnAuth.hide()\n            self.btnRefreshTokenOnly.hide()\n        except Exception as _e:\n            _log(\"hide-buttons warning:\", repr(_e))\n        # ---- end Settings dropdown ----\n\n        v.addLayout(top)\n\n        self.table = QtWidgets.QTableWidget(0, 3)\n        self.table.setHorizontalHeaderLabels([\"Gamertag\", \"Status\", \"Game\"])\n        self.table.horizontalHeader().setStretchLastSection(True)\n        self.table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)\n        v.addWidget(self.table, 1)\n\n        self.btn.clicked.connect(self.refresh)\n        self.btnAuth.clicked.connect(self._do_auth)\n        self.btnRefreshTokenOnly.clicked.connect(self._refresh_token_only)\n        self.view.currentIndexChanged.connect(self._reapply_filter)\n        self.view.currentIndexChanged.connect(lambda _i: self._save_settings(view_index=int(_i)))\n        self.chkAlwaysOnTop.toggled.connect(self._apply_always_on_top)\n\n        self.sig_set_status.connect(self._set_status)\n        self.sig_set_rows.connect(self._receive_full_rows)\n        self.sig_enable_btn.connect(self.btn.setEnabled)\n        self.sig_busy.connect(self._busy.setVisible)\n\n        # Load and apply persistent settings (opacity, auto-refresh)\n        try:\n            _s = self._load_settings()\n            # Apply opacity\n            _op = int(_s.get(\"opacity_percent\", 100))\n            _op = max(20, min(100, _op))\n            self.setWindowOpacity(_op / 100.0)\n            # Apply auto-refresh state\n            _auto = bool(_s.get(\"auto_refresh\", False))\n            if hasattr(self, \"_autoAction\"):\n                self._autoAction.setChecked(_auto)\n            if _auto:\n                self._autoRefreshTimer.start()\n            # Apply view filter index\n            try:\n                _vi = int(_s.get(\"view_index\", 0))\n                if 0 <= _vi < self.view.count():\n                    self.view.setCurrentIndex(_vi)\n            except Exception:\n                pass\n            # Apply 'Always on top'\n            _aot = bool(_s.get(\"always_on_top\", False))\n            if hasattr(self, 'chkAlwaysOnTop'):\n                self.chkAlwaysOnTop.setChecked(_aot)\n            self.setWindowFlag(QtCore.Qt.WindowType.WindowStaysOnTopHint, _aot)\n            self.show()\n        except Exception as _e:\n            _log(\"apply settings warn:\", repr(_e))\n\n        # Show cached rows immediately (if available) before first refresh\n        try:\n            _had_cache = self._load_cached_rows()\n        except Exception as _e:\n            _had_cache = False\n            _log(\"warm restore warn:\", repr(_e))\n        if not _had_cache:\n            QtCore.QTimer.singleShot(150, self.refresh)\n\n    def _set_status(self, s: str):\n        self.lbl.setText(s); _log(\"status:\", s)\n\n    def _receive_full_rows(self, rows: List[tuple]):\n        # rows already have \"Online first\" order\n        self._full_rows = rows\n        self._reapply_filter()\n\n    def _reapply_filter(self):\n        rows = self._full_rows\n        if self.view.currentIndex() == 1:  # Online only\n            rows = [r for r in rows if r[1] == \"Online\"]\n        self._apply_rows(rows)\n\n\n    # --- Status LED helpers (ADD-ONLY) ---\n    def _build_led_icon(self, color: QtCore.Qt.GlobalColor) -> QtWidgets.QStyle.StandardPixmap | QtWidgets.QStyle:\n        # Create a small circular pixmap to act as an LED\n        pm = QtGui.QPixmap(14, 14)\n        pm.fill(QtCore.Qt.GlobalColor.transparent)\n        painter = QtGui.QPainter(pm)\n        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)\n        brush = QtGui.QBrush(color)\n        pen = QtGui.QPen(QtCore.Qt.GlobalColor.black)\n        pen.setWidth(1)\n        painter.setPen(pen)\n        painter.setBrush(brush)\n        painter.drawEllipse(1, 1, 12, 12)\n        painter.end()\n        return QtGui.QIcon(pm)\n\n    def _icon_for_state(self, st: str) -> QtGui.QIcon:\n        try:\n            if not hasattr(self, \"_led_green\"):\n                self._led_green = self._build_led_icon(QtCore.Qt.GlobalColor.green)\n                self._led_red   = self._build_led_icon(QtCore.Qt.GlobalColor.red)\n                self._led_blank = self._build_led_icon(QtCore.Qt.GlobalColor.gray)\n        except Exception:\n            pass\n        s = (st or \"\").strip().lower()\n        if s == \"online\":\n            return getattr(self, \"_led_green\", QtWidgets.QApplication.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_DialogApplyButton))\n        elif s == \"offline\":\n            return getattr(self, \"_led_red\", QtWidgets.QApplication.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_DialogCancelButton))\n        return getattr(self, \"_led_blank\", QtWidgets.QApplication.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_MessageBoxInformation))\n    # --- end Status LED helpers ---\n\n    def _apply_rows(self, rows: List[tuple]):\n        self.table.setSortingEnabled(False)\n        self.table.setRowCount(len(rows))\n        for i,(gt,st,gm) in enumerate(rows):\n            # Gamertag text\n            self.table.setItem(i,0, QtWidgets.QTableWidgetItem(gt))\n            # Status LED (icon only)\n            _status_item = QtWidgets.QTableWidgetItem(\"\")\n            try:\n                _status_item.setIcon(self._icon_for_state(st))\n                _status_item.setText(\"\")  # no text, icon only\n                _status_item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)\n            except Exception:\n                _status_item.setText(st)\n            self.table.setItem(i,1, _status_item)\n            # Game text\n            self.table.setItem(i,2, QtWidgets.QTableWidgetItem(gm))\n        self.table.setSortingEnabled(True)\n        # Keep consistent order: Online first (already), within that alphabetically\n        self.table.sortItems(1, QtCore.Qt.SortOrder.AscendingOrder)\n\n\n    def _apply_always_on_top(self, checked: bool):\n        try:\n            self.setWindowFlag(QtCore.Qt.WindowType.WindowStaysOnTopHint, bool(checked))\n            self.show()  # re-apply flags\n            try:\n                self._save_settings(always_on_top=bool(checked))\n            except Exception as _e:\n                _log(\"settings write warn:\", repr(_e))\n        except Exception as e:\n            _log(\"always on top apply error:\", repr(e))\n\n    def _open_transparency(self):\n        try:\n            if not hasattr(self, \"_transparencyDlg\") or self._transparencyDlg is None:\n                self._transparencyDlg = TransparencyDialog(self)\n            self._transparencyDlg.show()\n            self._transparencyDlg.raise_()\n            self._transparencyDlg.activateWindow()\n        except Exception as e:\n            QtWidgets.QMessageBox.critical(self, \"Error\", f\"Transparency error: {e}\")\n\n    def _refresh_token_only(self):\n        \"\"\"\n        Run xbl_login_standalone_v3.py to refresh tokens, then prompt where the new token was saved.\n        \"\"\"\n        try:\n            self.sig_enable_btn.emit(False)\n            self.sig_set_status.emit(\"Refreshing token via login helper...\")\n\n            base = Path(__file__).resolve().parent\n            helper = base / \"xbl_login_standalone_v3.py\"\n            if not helper.exists():\n                QtWidgets.QMessageBox.critical(self, \"Missing helper\", \"xbl_login_standalone_v3.py not found next to this script.\")\n                self.sig_enable_btn.emit(True)\n                return\n\n            proc = subprocess.run([sys.executable, str(helper)], cwd=str(base), capture_output=True, text=True)\n            out = (proc.stdout or \"\") + \"\\n\" + (proc.stderr or \"\")\n            if proc.returncode != 0:\n                QtWidgets.QMessageBox.critical(self, \"Refresh failed\", f\"Helper exited with {proc.returncode}.\\n\\nOutput (tail):\\n{out[-2000:]}\")\n                self.sig_enable_btn.emit(True)\n                return\n\n            # Parse output to find the saved tokens file\n            tokens_path = None\n            for line in out.splitlines():\n                s = line.strip()\n                if s.startswith(\"[Info] Tokens file:\"):\n                    tokens_path = s.split(\":\", 1)[1].strip()\n                    break\n            if not tokens_path:\n                # Fallback to typical default\n                tokens_path = str(Path(os.environ.get(\"LOCALAPPDATA\", Path.home())) / \"OpenXbox\" / \"xbox\" / \"tokens.json\")\n\n            # Prompt user where it was saved and offer to use it now\n            msg = QtWidgets.QMessageBox(self)\n            msg.setIcon(QtWidgets.QMessageBox.Icon.Information)\n            msg.setWindowTitle(\"Token refreshed\")\n            msg.setText(f\"New tokens were saved here:\\n{tokens_path}\\n\\nUse this tokens.json now?\")\n            yes_btn = msg.addButton(\"Use now\", QtWidgets.QMessageBox.ButtonRole.AcceptRole)\n            no_btn = msg.addButton(\"Cancel\", QtWidgets.QMessageBox.ButtonRole.RejectRole)\n            msg.exec()\n            if msg.clickedButton() is yes_btn:\n                os.environ[\"XBL_TOKENS_PATH\"] = tokens_path\n                self.sig_set_status.emit(\"Using refreshed tokens. Reloading…\")\n                QtCore.QTimer.singleShot(200, self.refresh)\n            else:\n                self.sig_enable_btn.emit(True)\n\n        except Exception as e:\n            QtWidgets.QMessageBox.critical(self, \"Error\", str(e))\n            self.sig_enable_btn.emit(True)\n\n    def _do_auth(self):\n        \"\"\"\n        Opens a small chooser:\n        - Use existing tokens.json (browse & load)\n        - Run device sign-in helper to create a new tokens.json\n        \"\"\"\n        try:\n            default_path = os.environ.get(\"XBL_TOKENS_PATH\") or str((Path.cwd() / \"tokens.json\"))\n            # Simple chooser via QMessageBox-style buttons\n            dlg = QtWidgets.QMessageBox(self)\n            dlg.setIcon(QtWidgets.QMessageBox.Icon.Question)\n            dlg.setWindowTitle(\"Xbox sign-in / tokens.json\")\n            dlg.setText(\"How would you like to provide tokens?\")\n            use_existing = dlg.addButton(\"Use existing tokens.json…\", QtWidgets.QMessageBox.ButtonRole.AcceptRole)\n            run_helper  = dlg.addButton(\"Run device sign-in…\", QtWidgets.QMessageBox.ButtonRole.ActionRole)\n            cancel_btn  = dlg.addButton(\"Cancel\", QtWidgets.QMessageBox.ButtonRole.RejectRole)\n            # PyQt6: exec()\n            dlg.exec()\n            clicked = dlg.clickedButton()\n            if clicked is cancel_btn:\n                return\n\n            if clicked is use_existing:\n                path, _ = QtWidgets.QFileDialog.getOpenFileName(\n                    self, \"Select tokens.json\", default_path, \"JSON Files (*.json);;All Files (*)\"\n                )\n                if not path:\n                    return\n                # point the app to this file and refresh\n                os.environ[\"XBL_TOKENS_PATH\"] = path\n                self.sig_set_status.emit(\"Using selected tokens.json. Reloading…\")\n                QtCore.QTimer.singleShot(200, self.refresh)\n                return\n\n            # Otherwise run helper to produce a new tokens.json\n            save_path, _ = QtWidgets.QFileDialog.getSaveFileName(\n                self, \"Save tokens.json\", default_path, \"JSON Files (*.json);;All Files (*)\"\n            )\n            if not save_path:\n                return\n\n            self.sig_enable_btn.emit(False)\n            self.sig_set_status.emit(\"Starting device sign-in… follow the console/device code flow\")\n\n            base = Path(__file__).resolve().parent\n            helper = None\n            for name in [\"xbl_auth_device_any.py\", \"xbl_login_standalone_v3.py\", \"xbl_signin_from_oauth_tokens.py\"]:\n                cand = base / name\n                if cand.exists():\n                    helper = str(cand)\n                    break\n            if helper is None:\n                QtWidgets.QMessageBox.critical(\n                    self, \"Missing helper\",\n                    \"Could not find a sign-in helper (xbl_auth_device_any.py or xbl_login_standalone_v3.py).\"\n                )\n                self.sig_enable_btn.emit(True)\n                return\n\n            import subprocess, sys\n            # Safe subprocess: helper is resolved from trusted package directory and\n            # save_path is a user-chosen file path, not executable input.\n            proc = subprocess.run([sys.executable, helper, \"--out\", save_path], cwd=str(base))  # nosec B603\n            if proc.returncode != 0:\n                QtWidgets.QMessageBox.critical(self, \"Sign-in failed\", f\"Auth helper exited with code {proc.returncode}.\")\n                self.sig_enable_btn.emit(True)\n                return\n\n            os.environ[\"XBL_TOKENS_PATH\"] = save_path\n            self.sig_set_status.emit(\"Token saved. Reloading…\")\n            QtCore.QTimer.singleShot(200, self.refresh)\n\n        except Exception as e:\n            QtWidgets.QMessageBox.critical(self, \"Error\", str(e))\n            self.sig_enable_btn.emit(True)\n\n\n    def _toggle_auto_refresh(self):\n        try:\n            if self._autoRefreshTimer.isActive():\n                self._autoRefreshTimer.stop()\n                if hasattr(self, '_autoAction') and self._autoAction:\n                    self._autoAction.setChecked(False)\n                self.sig_set_status.emit(\"Auto Refresh: OFF\")\n                try:\n                    self._save_settings(auto_refresh=False)\n                except Exception as _e:\n                    _log(\"settings write warn:\", repr(_e))\n            else:\n                self._autoRefreshTimer.start()\n                if hasattr(self, '_autoAction') and self._autoAction:\n                    self._autoAction.setChecked(True)\n                self.sig_set_status.emit(\"Auto Refresh: ON (every 1 min)\")\n                try:\n                    self._save_settings(auto_refresh=True)\n                except Exception as _e:\n                    _log(\"settings write warn:\", repr(_e))\n        except Exception as e:\n            QtWidgets.QMessageBox.critical(self, \"Auto Refresh Error\", str(e))\n\n    def refresh(self):\n        self.sig_enable_btn.emit(False); self.sig_set_status.emit(\"\"); self.sig_busy.emit(True); self.sig_set_rows.emit([])\n\n        def _run():\n            try:\n                # ----- auth\n                tpath = _find_tokens_path()\n                if not tpath:\n                    raise RuntimeError(\"tokens.json not found. Set XBL_TOKENS_PATH or place tokens.json next to the script.\")\n                _log(\"Using tokens.json at:\", str(tpath))\n                headers = _build_auth_from_tokens(tpath)\n\n                # ----- friends list\n                friends = _fetch_friends(headers)\n                if not friends:\n                    raise RuntimeError(\"No friends returned (service/permissions).\")\n\n                self.sig_set_status.emit(f\"{len(friends)} friends (resolving names...)\")\n\n                # ----- gamertags\n                missing = [f[\"xuid\"] for f in friends if f.get(\"xuid\") and not f.get(\"gamertag\")]\n                gmap = _resolve_gamertags_batch(headers, missing) if missing else {}\n                if missing and len(gmap) < len(missing):\n                    slow_needed = [x for x in missing if x not in gmap]\n                    if slow_needed:\n                        gmap.update(_resolve_gamertags_slow(headers, slow_needed))\n                for f in friends:\n                    if not f.get(\"gamertag\"):\n                        f[\"gamertag\"] = gmap.get(f.get(\"xuid\",\"\"), f.get(\"xuid\",\"\"))\n\n                self.sig_set_status.emit(f\"{len(friends)} friends (loading presence...)\")\n\n                # ----- presence\n                xuids = [f[\"xuid\"] for f in friends if f.get(\"xuid\")]\n                pres = _presence_batch(headers, xuids) if xuids else {}\n                if xuids and len(pres) < len(xuids):\n                    def _progress(i, n):\n                        self.sig_set_status.emit(f\"{len(friends)} friends (presence {i}/{n})\")\n                    pres.update(_presence_fast(headers, [x for x in xuids if x not in pres], _progress, workers=24))\n\n                rows = []\n                for f in friends:\n                    x = f.get(\"xuid\",\"\"); gt = f.get(\"gamertag\") or x\n                    p = pres.get(x, {})\n                    state = \"Online\" if str(p.get(\"state\",\"\")).lower()==\"online\" else (\"Offline\" if p else \"\")\n                    title = p.get(\"title\",\"\")\n                    rows.append((gt, state, title))\n                rows.sort(key=lambda r: (r[1]!=\"Online\", r[0].lower()))\n\n                self.sig_set_rows.emit(rows)\n                try:\n                    self._save_cached_rows(rows)\n                except Exception as _e:\n                    _log(\"cache post-refresh warn:\", repr(_e))\n                self.sig_set_status.emit(f\"{len(rows)} friends (presence applied)\")\n                self.sig_busy.emit(False)\n                self.sig_enable_btn.emit(True)\n\n            except Exception as e:\n                _log(\"Error:\", repr(e))\n                self.sig_set_status.emit(f\"Error: {e.__class__.__name__}: {e}\")\n                self.sig_busy.emit(False)\n                self.sig_enable_btn.emit(True)\n\n        threading.Thread(target=_run, daemon=True).start()\ndef _presence_fast(headers: Dict, xuids: List[str], progress_cb=None, workers: int = 24) -> Dict[str, Dict]:\n    \"\"\"Concurrent presence fetch using a shared Session. Keeps requests gentle but parallel.\"\"\"\n    import concurrent.futures, time, math\n    result = {}\n    if not xuids:\n        return result\n\n    # Shared session with connection pool\n    sess = requests.Session()\n    try:\n        from requests.adapters import HTTPAdapter\n        from urllib3.util.retry import Retry\n        adapter = HTTPAdapter(pool_connections=workers*2, pool_maxsize=workers*2, max_retries=0)\n        sess.mount(\"https://\", adapter); sess.mount(\"http://\", adapter)\n    except Exception:\n        pass\n\n    base_headers = dict(headers)\n    base_headers[\"x-xbl-contract-version\"] = \"3\"\n    url_tpl = \"https://userpresence.xboxlive.com/users/xuid({})?level=all\"\n\n    # Gentle concurrency: cap workers, backoff on 429, shorter timeout\n    def fetch_one(xuid: str):\n        url = url_tpl.format(xuid)\n        tries = 0\n        delay = 0.3\n        while True:\n            tries += 1\n            try:\n                r = sess.get(url, headers=base_headers, timeout=8)\n                status = r.status_code\n                if status == 429:\n                    # Too many requests; back off a bit and retry\n                    time.sleep(delay)\n                    delay = min(delay * 1.6, 3.0)\n                    if tries < 5:\n                        continue\n                if status in (400, 404):\n                    return xuid, {}\n                r.raise_for_status()\n                j = r.json() if r.content else {}\n                state = j.get(\"state\") or j.get(\"presenceState\") or \"\"\n                title = _extract_title_from_presence(j)\n                return xuid, {\"state\": state, \"title\": title}\n            except Exception:\n                if tries < 3:\n                    time.sleep(delay)\n                    delay = min(delay * 1.6, 3.0)\n                    continue\n                return xuid, {}\n\n    done = 0\n    report_every = max(10, len(xuids)//15)  # ~15 updates max\n    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(workers, 48))) as ex:\n        for xuid, info in ex.map(fetch_one, xuids):\n            done += 1\n            if info:\n                result[str(xuid)] = info\n            if progress_cb and (done % report_every == 0 or done == len(xuids)):\n                progress_cb(done, len(xuids))\n\n    _log(\"presence fast collected:\", len(result))\n    try:\n        sess.close()\n    except Exception:\n        pass\n    return result\n\n\ndef main():\n    _log(\"Starting Xbox Friends Dock (INLINE v5)\")\n    app = QtWidgets.QApplication(sys.argv)\n    w = FriendsDock(); w.show()\n    rc = app.exec()\n    _log(\"App exit code:\", rc); sys.exit(rc)\n\nif __name__ == \"__main__\":\n    main()", "xbl_friends_dock_INLINE_v5_REFRESH_UI_v2_PATCHED.py")
 
 # === BEGIN ADD-ONLY: background worker for non-blocking Steam validation ===
 from PyQt6 import QtCore
@@ -350,6 +351,135 @@ try:
         # Apply monkey patches
         FriendsDock._refresh_token_only = _embedded_refresh_token_only
         FriendsDock._do_auth = _embedded_do_auth
+        # Add-only: hook friends presence updates to main window toast
+        try:
+            _uwpla_orig_init = FriendsDock.__init__
+        except Exception:
+            _uwpla_orig_init = None
+        if _uwpla_orig_init is not None:
+            def _uwpla_friends_init(self, *args, **kwargs):
+                # Track last known presence to avoid re-toasting
+                self._uwpla_last_presence = {}
+                self._uwpla_initial_toasts_done = False
+                # Call original __init__ first so signals/widgets exist
+                _uwpla_orig_init(self, *args, **kwargs)
+                try:
+                    # Track last seen rows for diffing
+                    self._uwpla_prev_rows = []
+                except Exception:
+                    pass
+                try:
+                    # Connect once; Qt will ignore duplicate connections safely
+                    self.sig_set_rows.connect(self._uwpla_on_set_rows)
+                except Exception:
+                    pass
+
+            def _uwpla_on_set_rows(self, rows):
+                """Internal slot: watch friends rows and emit lightweight toasts on changes."""
+                try:
+                    new_rows = list(rows) if rows is not None else []
+                except Exception:
+                    new_rows = []
+                try:
+                    prev = getattr(self, "_uwpla_prev_rows", [])
+                except Exception:
+                    prev = []
+                try:
+                    prev_map = {str(r[0]): (r[1] if len(r) > 1 else "", r[2] if len(r) > 2 else "") for r in prev}
+                    new_map = {str(r[0]): (r[1] if len(r) > 1 else "", r[2] if len(r) > 2 else "") for r in new_rows}
+                except Exception:
+                    # If anything looks weird, just store and bail
+                    try:
+                        self._uwpla_prev_rows = new_rows
+                    except Exception:
+                        pass
+                    return
+
+                # On very first load, toast all currently online friends once
+                if not prev_map:
+                    try:
+                        parent = self.parent()
+                    except Exception:
+                        parent = None
+                    if parent is not None and hasattr(parent, "_show_toast"):
+                        try:
+                            for row in new_rows:
+                                try:
+                                    name = str(row[0])
+                                    state = str(row[1] if len(row) > 1 else "")
+                                    title = str(row[2] if len(row) > 2 else "")
+                                except Exception:
+                                    continue
+                                s_now = (state or "").lower()
+                                if s_now == "online":
+                                    try:
+                                        if title:
+                                            msg = f"{name} is online playing {title}."
+                                        else:
+                                            msg = f"{name} is online."
+                                        parent._show_toast(msg, "info")
+                                    except Exception:
+                                        pass
+                        except Exception:
+                            pass
+                    try:
+                        self._uwpla_prev_rows = new_rows
+                    except Exception:
+                        pass
+                    return
+
+                try:
+                    parent = self.parent()
+                except Exception:
+                    parent = None
+
+                # Walk new rows and compare to previous
+                for row in new_rows:
+                    try:
+                        name = str(row[0])
+                        state = str(row[1] if len(row) > 1 else "")
+                        title = str(row[2] if len(row) > 2 else "")
+                    except Exception:
+                        continue
+
+                    old_state, old_title = prev_map.get(name, ("", ""))
+
+                    # Normalize states
+                    s_now = (state or "").lower()
+                    s_old = (old_state or "").lower()
+
+                    try:
+                        # Friend came online
+                        if s_now == "online" and s_old != "online":
+                            if parent is not None and hasattr(parent, "_show_toast"):
+                                try:
+                                    if title:
+                                        msg = f"{name} just came online playing {title}."
+                                    else:
+                                        msg = f"{name} just came online."
+                                    parent._show_toast(msg, "info")
+                                except Exception:
+                                    pass
+
+                        # Friend started a new game (title changed while online)
+                        if title and title != old_title and s_now == "online":
+                            if parent is not None and hasattr(parent, "_show_toast"):
+                                try:
+                                    parent._show_toast(f"{name} started playing {title}.", "success")
+                                except Exception:
+                                    pass
+                    except Exception:
+                        # Never let toast logic break the friends dock
+                        continue
+
+                try:
+                    self._uwpla_prev_rows = new_rows
+                except Exception:
+                    pass
+
+            FriendsDock.__init__ = _uwpla_friends_init
+            FriendsDock._uwpla_on_set_rows = _uwpla_on_set_rows
+
 except Exception as _e:
     # Non-fatal; app will still run and can fall back to original behavior
     pass
@@ -1787,6 +1917,25 @@ class Worker(QtCore.QObject):
                     return
                 # We don't try to force affinity/priority for Steam-launched games here,
                 # because we don't know the exact EXE name yet.
+                try:
+                    details_tpl = self.discord_cfg.get("discord_details_tpl", "{name}")
+                    state_tpl = self.discord_cfg.get(
+                        "discord_state_tpl",
+                        "HighPrio={high}  Affinity={aff}  Flags={flags}",
+                    )
+                    show_flags = " ".join(flags) if flags else "(none)"
+                    payload = {
+                        "details": details_tpl.format(name=self.game.get("name", "")),
+                        "state": state_tpl.format(
+                            name=self.game.get("name", ""),
+                            high=self.do_high,
+                            aff=self.do_aff,
+                            flags=show_flags,
+                        ),
+                    }
+                    self.presence.emit(payload)
+                except Exception as e:
+                    self.progress.emit(f"Discord presence formatting failed: {e}")
                 self.done.emit(True, "Launched Steam game via Steam.")
                 return
 
@@ -1878,6 +2027,183 @@ class Worker(QtCore.QObject):
         except Exception as e:
             self.done.emit(False, f"Error: {e}")
 # ============= Main UI =============
+
+# --- Xbox / Game Bar notification mirroring (winsdk) ---
+try:
+    from PyQt6 import QtCore as _QtCore
+    _HAVE_QT = True
+except Exception:
+    _HAVE_QT = False
+
+try:
+    # Python Windows SDK projection
+    from winsdk.windows.ui.notifications.management import UserNotificationListener, UserNotificationListenerAccessStatus
+    from winsdk.windows.ui.notifications import NotificationKinds
+    _HAVE_WINSDK = True
+except Exception:
+    _HAVE_WINSDK = False
+
+# App IDs and keywords we treat as Xbox-related
+_XBOX_TARGET_APP_IDS = {
+    "Microsoft.XboxApp",
+    "Microsoft.XboxGamingOverlay",
+    "Microsoft.Xbox.TCUI",
+}
+_XBOX_KEYWORDS = ("message", "invite", "party", "game invite", "chat", "invited you", "party invite", "join")
+
+def _xbox_summarize_notification(n):
+    app_id = "<unknown>"
+    text = "<no-text>"
+    try:
+        app_info = n.app_info
+        app_id = getattr(app_info, "app_user_model_id", None) or getattr(app_info, "id", None) or "<unknown>"
+    except Exception:
+        pass
+    try:
+        visual = n.notification.visual
+        binding = None
+        try:
+            binding = visual.get_binding("ToastGeneric")
+        except Exception:
+            binding = None
+        if not binding:
+            try:
+                for b in visual.get_bindings():
+                    binding = b
+                    break
+            except Exception:
+                binding = None
+        parts = []
+        if binding:
+            for child in binding.get_text_elements():
+                t = child.text
+                if t:
+                    parts.append(t)
+        if parts:
+            text = " | ".join(parts)
+    except Exception:
+        pass
+    return app_id, (text or '').strip()
+
+if _HAVE_QT:
+    class _XboxNotifWorker(_QtCore.QThread):
+        toast = _QtCore.pyqtSignal(str)
+        toast_detail = _QtCore.pyqtSignal(str, str)  # app_id, text
+
+        def __init__(self, parent=None):
+            super().__init__(parent)
+            self._running = True
+
+        def stop(self):
+            self._running = False
+
+        def run(self):
+            if not _HAVE_WINSDK:
+                return
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+            async def _watch():
+                try:
+                    listener = UserNotificationListener.current
+                    status = await listener.request_access_async()
+                    if status != UserNotificationListenerAccessStatus.ALLOWED:
+                        return
+                    seen = set()
+                    while self._running:
+                        try:
+                            arr = await listener.get_notifications_async(NotificationKinds.TOAST)
+                            for n in arr:
+                                if n.id in seen:
+                                    continue
+                                app_id, text = _xbox_summarize_notification(n)
+                                app_lower = (app_id or '').lower()
+                                txt_lower = (text or '').lower()
+                                is_xbox_source = ('xbox' in app_lower) or any(tid.lower() in app_lower for tid in _XBOX_TARGET_APP_IDS)
+                                is_keyword = any(kw in txt_lower for kw in [kw.lower() for kw in _XBOX_KEYWORDS])
+                                if is_xbox_source or is_keyword:
+                                    msg = text.strip() if text and text.strip() else f"Xbox notification from {app_id}"
+                                    self.toast.emit(msg)
+                                    self.toast_detail.emit(app_id or '', text or '')
+                                seen.add(n.id)
+                        except Exception:
+                            # don't spam logs from the worker thread
+                            pass
+                        await asyncio.sleep(1.0)
+                except Exception:
+                    pass
+
+            try:
+                loop.run_until_complete(_watch())
+            finally:
+                try:
+                    loop.stop()
+                    loop.close()
+                except Exception:
+                    pass
+
+
+# --- XBL token auto-refresh helpers (robust, skew-tolerant) ---
+def _xbl_tokens_path():
+    """Return the expected OpenXbox tokens.json path (LocalAppData/OpenXbox/xbox/tokens.json)."""
+    import os
+    try:
+        root = os.getenv("LOCALAPPDATA") or os.getenv("APPDATA") or ""
+        if root:
+            p = os.path.join(root, "OpenXbox", "xbox", "tokens.json")
+            return p
+    except Exception:
+        pass
+    # Fallback next to app as last resort
+    try:
+        from pathlib import Path as _Path
+        return str((_Path.cwd() / "tokens.json").resolve())
+    except Exception:
+        return "tokens.json"
+
+
+def _xbl_load_tokens():
+    import json, time, os
+    path = _xbl_tokens_path()
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        # Normalize fields
+        now = int(time.time())
+        # Try several field names commonly used
+        exp = data.get("expires_at") or data.get("expires") or data.get("expiry") or 0
+        if isinstance(exp, str):
+            try:
+                exp = int(float(exp))
+            except Exception:
+                exp = 0
+        return data, int(exp or 0), path
+    except Exception:
+        return None, 0, path
+
+
+def _xbl_save_tokens_atomic(obj):
+    import json, os, tempfile, shutil
+    path = _xbl_tokens_path()
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+    except Exception:
+        pass
+    try:
+        d = json.dumps(obj, indent=2)
+        fd, tmpp = tempfile.mkstemp(prefix="tokens_", suffix=".json", dir=os.path.dirname(path) or None)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(d)
+        shutil.move(tmpp, path)
+        return True
+    except Exception:
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(obj, f, indent=2)
+            return True
+        except Exception:
+            return False
 class Main(QtWidgets.QWidget):
     def on_xbox_sign_in(self):
         try:
@@ -2071,6 +2397,61 @@ class Main(QtWidgets.QWidget):
             self._append(f"[friends] failed to launch popup: {e}")
     def __init__(self):
         super().__init__()
+
+        # --- XBL token auto-refresh ---
+        try:
+            from PyQt6 import QtCore as _QtCore
+            self._xbl_refreshing = False
+            self._xbl_refresh_backoff = 0  # seconds
+            self._xbl_refresh_timer = _QtCore.QTimer(self)
+            self._xbl_refresh_timer.setSingleShot(False)
+            self._xbl_refresh_timer.setInterval(60 * 1000)  # check every 60s
+            self._xbl_refresh_timer.timeout.connect(self._xbl_check_refresh_needed)
+            self._xbl_refresh_timer.start()
+        except Exception:
+            self._xbl_refresh_timer = None
+            self._xbl_refreshing = False
+            self._xbl_refresh_backoff = 0
+
+        # Start Xbox/Game Bar notification mirroring if winsdk is present
+        try:
+            if _HAVE_QT and _HAVE_WINSDK:
+                self._xbox_worker = _XboxNotifWorker(self)
+                # Use the existing one-at-a-time toast system
+                self._xbox_worker.toast.connect(lambda t: self._show_toast(t, "info"))
+                self._xbox_worker.toast_detail.connect(self._on_xbox_toast_detail)
+                self._xbox_worker.start()
+                self._xbox_debug = bool(self.settings.get('xbox_notifications_debug', False))
+            else:
+                self._xbox_worker = None
+        except Exception:
+            self._xbox_worker = None
+        # --- Toast queue state (serializes notifications) ---
+        try:
+            from PyQt6 import QtCore as _QtCore
+            self._toast_queue = []          # list[tuple(text, level, timeout_ms)]
+            self._toast_active = False      # whether a toast is currently animating/visible
+            self._toast_timer = _QtCore.QTimer(self)
+            self._toast_timer.setSingleShot(True)
+            self._toast_timer.timeout.connect(self._drain_toast_queue)
+        except Exception:
+            self._toast_queue = []
+            self._toast_active = False
+            self._toast_timer = None
+
+        # --- Toast queue state (serializes notifications) ---
+        try:
+            from PyQt6 import QtCore as _QtCore
+            self._toast_queue = []          # list[tuple(text, level, timeout_ms)]
+            self._toast_active = False      # whether a toast is currently animating/visible
+            self._toast_timer = _QtCore.QTimer(self)
+            self._toast_timer.setSingleShot(True)
+            self._toast_timer.timeout.connect(self._drain_toast_queue)
+        except Exception:
+            self._toast_queue = []
+            self._toast_active = False
+            self._toast_timer = None
+
         self.setWindowTitle(f"UWPLauncher v{APP_VERSION}")
         self.resize(920, 640)
 
@@ -2530,7 +2911,18 @@ class Main(QtWidgets.QWidget):
             pass
 
     
+    
     def _show_toast(self, text: str, level: str = "info", timeout_ms: int = 3500):
+        """Queue a toast; display serially to avoid overlap."""
+        if not text:
+            return
+        try:
+            self._toast_queue.append((text, level, timeout_ms))
+            self._drain_toast_queue()
+        except Exception:
+            pass
+
+    def _render_toast_now(self, text: str, level: str = "info", timeout_ms: int = 3500):
         """
         Lightweight in-app toast notification in the bottom-right corner.
         level: "info" | "success" | "error"
@@ -2599,6 +2991,15 @@ class Main(QtWidgets.QWidget):
             anim_out.setEndValue(0.0)
 
             def cleanup():
+                try:
+                    self._toast_active = False
+                    if self._toast_timer:
+                        self._toast_timer.start(150)
+                    self._drain_toast_queue()
+                    self._drain_toast_queue()  # proceed immediately to next
+                except Exception:
+                    self._toast_active = False
+
                 toast.hide()
                 toast.deleteLater()
 
@@ -2610,6 +3011,7 @@ class Main(QtWidgets.QWidget):
         toast._anim_in = anim_in
 
         toast.show()
+        
         anim_in.start()
         _QtCore.QTimer.singleShot(timeout_ms, start_fade_out)
 
@@ -2896,6 +3298,29 @@ class Main(QtWidgets.QWidget):
         try:
             self._update_artwork_for_current_game()
         except Exception:
+            pass
+
+        # Discord Rich Presence: reflect current selection while browsing
+        try:
+            if self.settings.get("discord_enabled") and getattr(self, "discord", None) and self.discord.connected:
+                details_tpl = self.settings.get("discord_details_tpl", "{name}")
+                state_tpl = self.settings.get("discord_state_tpl", "HighPrio={high}  Affinity={aff}  Flags={flags}")
+                base_flags = g.get("flags", [])
+                if isinstance(base_flags, str):
+                    base_flags = [x for x in base_flags.strip().split() if x]
+                show_flags = " ".join(base_flags) if base_flags else "(none)"
+                high = bool(self.chk_priority.isChecked())
+                aff = bool(self.chk_affinity.isChecked())
+                details = details_tpl.format(name=g.get("name", ""))
+                state = state_tpl.format(
+                    name=g.get("name", ""),
+                    high=high,
+                    aff=aff,
+                    flags=show_flags,
+                )
+                self.discord.set_presence(details, state, self._append)
+        except Exception:
+            # Never let Discord issues break selection changes
             pass
 
 
@@ -3324,6 +3749,103 @@ class Main(QtWidgets.QWidget):
 
 
 # (moved into Main)
+
+    def _drain_toast_queue(self):
+        """Show next toast if none active."""
+        try:
+            if self._toast_active or not getattr(self, "_toast_queue", None):
+                return
+            item = self._toast_queue.pop(0)
+            self._toast_active = True
+            text, level, timeout_ms = item
+            self._render_toast_now(text, level, timeout_ms)
+        except Exception:
+            # If something goes wrong, clear state to avoid deadlock
+            self._toast_active = False
+
+    def closeEvent(self, event):
+        try:
+            w = getattr(self, '_xbox_worker', None)
+            if w is not None:
+                w.stop()
+                w.wait(1000)
+        except Exception:
+            pass
+        try:
+            super().closeEvent(event)
+        except Exception:
+            pass
+
+    def _on_xbox_toast_detail(self, app_id: str, text: str):
+        try:
+            if getattr(self, "_xbox_debug", False):
+                self._append(f"[xbox-notif] {app_id}: {text}")
+        except Exception:
+            pass
+
+    def _xbl_check_refresh_needed(self):
+        """Check tokens.json expiry; refresh a few minutes early with jitter; handles backoff."""
+        try:
+            import time, random
+            data, exp, _ = _xbl_load_tokens()
+            if not data or not exp:
+                return
+            now = int(time.time())
+            # Refresh 5 minutes before expiry (skew 120s) with small jitter
+            refresh_at = int(exp) - 300
+            if now >= refresh_at - 120:
+                if not self._xbl_refreshing:
+                    # simple backoff if recent failures
+                    if self._xbl_refresh_backoff > 0:
+                        if now < self._xbl_refresh_backoff:
+                            return
+                    self._xbl_try_refresh(reason="timer")
+        except Exception:
+            pass
+
+    def _xbl_try_refresh(self, reason="manual"):
+        """Invoke embedded refresh flow safely; set flags and toast on success/failure."""
+        if getattr(self, "_xbl_refreshing", False):
+            return
+        self._xbl_refreshing = True
+        ok = False
+        msg = None
+        try:
+            # Use embedded helper if present
+            if hasattr(self, "_embedded_refresh_token_only"):
+                self._embedded_refresh_token_only()
+                # Validate new expiry
+                import time
+                _, exp, _ = _xbl_load_tokens()
+                if exp and exp > int(time.time()) + 900:  # got at least 15 more minutes
+                    ok = True
+                else:
+                    msg = "Xbox token refresh did not extend expiry."
+            else:
+                msg = "No embedded refresh helper available."
+        except Exception as e:
+            msg = f"Xbox token refresh error: {e}"
+        finally:
+            try:
+                self._xbl_refreshing = False
+            except Exception:
+                pass
+
+        # Notify + backoff
+        try:
+            if ok:
+                try:
+                    self._xbl_refresh_backoff = 0
+                except Exception:
+                    pass
+                self._show_toast("Xbox token refreshed.", "success")
+            else:
+                import time
+                self._xbl_refresh_backoff = int(time.time()) + 300  # 5 min
+                if msg:
+                    self._show_toast(msg, "error")
+        except Exception:
+            pass
 
 def _open_friends(self):
     try:

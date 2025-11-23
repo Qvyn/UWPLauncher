@@ -1,0 +1,6 @@
+Upgraded Discord presence 
+Discord now shows games you're browsing as you click on different titles within the launchers main panel. 
+Added Friends list toast to launcher.
+Friends now show up in pop ups that display when they're online and what game they're currently playing. 
+Added Xbox notification toast. 
+Fixed issue with token auto refresher not auto-refreshing causing users to be randomly signed out.
