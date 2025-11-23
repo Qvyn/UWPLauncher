@@ -525,7 +525,7 @@ from pathlib import Path
 
 # === App version & GitHub update config (ADD-ONLY) ===
 # Bump APP_VERSION whenever you ship a new build.
-APP_VERSION = "3.0.7"
+APP_VERSION = "3.0.8"
 
 # GitHub repo for UWPLauncher updates.
 GITHUB_REPO = "Qvyn/UWPLauncher"
