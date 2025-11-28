@@ -1,0 +1,6 @@
+                                                     ***There is a plugins manager built in***
+
+added ability to add python scripts to the launcher as plugins. simply make a folder, label it "scripts" and place your .py scripts in that folder for manual installation.
+                                                    
+fixed discord settings button causing random crash
+

@@ -766,6 +766,192 @@ def _app_root():
     except Exception:
         return Path.cwd()
 
+
+
+# === Plugin system (scripts/ folder) – ADD-ONLY ===
+
+PLUGIN_PACKAGE_NAME = "scripts"
+
+
+def _plugin_search_dirs():
+    """
+    Return a list of directories to search for plugin .py files.
+
+    We look in:
+      - _app_root()/scripts  (for dev / bundled data)
+      - exe_dir/scripts      (for "drop next to EXE" plugins)
+    """
+    dirs = []
+    try:
+        root = _app_root()
+        dirs.append(root / PLUGIN_PACKAGE_NAME)
+    except Exception:
+        pass
+
+    try:
+        from pathlib import Path as _Path
+        exe_dir = _Path(getattr(sys, "executable", ""))
+        if exe_dir:
+            exe_dir = exe_dir.parent
+            d2 = exe_dir / PLUGIN_PACKAGE_NAME
+            if d2 not in dirs:
+                dirs.append(d2)
+    except Exception:
+        pass
+
+    # De-dupe and keep only existing dirs
+    seen = set()
+    out = []
+    for d in dirs:
+        try:
+            d = d.resolve()
+        except Exception:
+            continue
+        if d in seen:
+            continue
+        seen.add(d)
+        if d.is_dir():
+            out.append(d)
+    return out
+
+
+def _iter_plugin_files():
+    """
+    Yield (path, module_name) for each plugin .py in scripts dirs.
+
+    Rules:
+      - Only *.py files
+      - Skip __init__.py and files starting with '_' (treated as private)
+      - Skip known non-plugin helper scripts like pywin32_postinstall / pywin32_testall
+    """
+    for base in _plugin_search_dirs():
+        try:
+            for p in base.glob("*.py"):
+                name = p.stem
+                if not name or name.startswith("_") or name == "__init__":
+                    continue
+                # Skip common helper scripts that live in Scripts/ but are not launcher plugins
+                if name.lower().startswith("pywin32_"):
+                    continue
+                # plugins are imported as "scripts.<name>"
+                mod_name = f"{PLUGIN_PACKAGE_NAME}.{name}"
+                yield p, mod_name
+        except Exception:
+            continue
+
+
+def _load_launcher_plugins(window=None):
+    """
+    Discover and import plugin modules from scripts/ and optionally call
+    their registration hooks with the main window.
+
+    Supported hooks inside each plugin module:
+      - register_plugin(window)
+      - register(window)
+      - init_plugin(window)
+
+    Only the first one found is called.
+
+    This version also honors a settings key 'plugins_disabled' on the main
+    window (if present). That key should be a list of plugin *names*
+    (stem of the .py filename) to skip on load, and we store basic
+    metadata on window._plugin_meta for the Plugin Manager UI.
+    """
+    import importlib
+
+    disabled = set()
+    settings = None
+    if window is not None:
+        try:
+            settings = getattr(window, "settings", None)
+        except Exception:
+            settings = None
+    if isinstance(settings, dict):
+        try:
+            for name in settings.get("plugins_disabled", []):
+                disabled.add(str(name).strip())
+        except Exception:
+            disabled = set()
+
+    loaded = []
+    meta = []
+
+    # Make sure "scripts" is a package if the folder exists but no package yet
+    for base in _plugin_search_dirs():
+        try:
+            if base.name != PLUGIN_PACKAGE_NAME:
+                continue
+            # Ensure a package object exists in sys.modules
+            if PLUGIN_PACKAGE_NAME not in sys.modules:
+                pkg = types.ModuleType(PLUGIN_PACKAGE_NAME)
+                pkg.__path__ = [str(base)]
+                sys.modules[PLUGIN_PACKAGE_NAME] = pkg
+                # best-effort: add to sys.path so import works
+                if str(base.parent) not in sys.path:
+                    sys.path.insert(0, str(base.parent))
+        except Exception:
+            pass
+
+    for path, mod_name in _iter_plugin_files():
+        stem = ""
+        try:
+            stem = path.stem
+        except Exception:
+            stem = str(mod_name).rpartition(".")[-1] or str(mod_name)
+        enabled = stem not in disabled
+        entry = {
+            "name": stem,
+            "module": mod_name,
+            "path": str(path),
+            "enabled": bool(enabled),
+        }
+        try:
+            if not enabled:
+                # Skip importing disabled plugins, but still expose metadata
+                meta.append(entry)
+                continue
+
+            mod = importlib.import_module(mod_name)
+            loaded.append(mod)
+            try:
+                setattr(mod, "__plugin_path__", str(path))
+            except Exception:
+                pass
+
+            entry["module_object"] = mod
+            meta.append(entry)
+
+            if window is not None:
+                # Prefer explicit register_plugin, then register, then init_plugin
+                for hook_name in ("register_plugin", "register", "init_plugin"):
+                    fn = getattr(mod, hook_name, None)
+                    if callable(fn):
+                        try:
+                            fn(window)
+                        except Exception as e:
+                            try:
+                                if hasattr(window, "_append"):
+                                    window._append(f"[plugin:{mod_name}] hook error: {e}")
+                            except Exception:
+                                pass
+                        break
+        except Exception as e:
+            entry["error"] = str(e)
+            meta.append(entry)
+            try:
+                if window is not None and hasattr(window, "_append"):
+                    window._append(f"[plugin:{mod_name}] failed to import: {e}")
+            except Exception:
+                pass
+
+    # Optionally store lists of loaded plugins + metadata on the window
+    try:
+        if window is not None:
+            window._plugins = loaded
+            window._plugin_meta = meta
+    except Exception:
+        pass
+
 # Make sure `xbl` package is importable
 if str(_app_root()) not in sys.path:
     sys.path.insert(0, str(_app_root()))
@@ -1851,6 +2037,7 @@ class SettingsEditor(QtWidgets.QDialog):
         self.chk_artwork_theme.setChecked(bool(self.settings.get("use_artwork_theme", False)))
         form.addRow("Use game artwork for theme", self.chk_artwork_theme)
 
+        # OK / Cancel buttons so changes can be applied
         btns = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Ok
             | QtWidgets.QDialogButtonBox.StandardButton.Cancel
@@ -1872,7 +2059,304 @@ class SettingsEditor(QtWidgets.QDialog):
             "dev_mode": dev_mode,
         }
 
-# ============= Worker =============
+
+def _restart_launcher_now():
+    """
+    Best-effort self-restart for the launcher.
+
+    Used by the Plugin Manager after plugin installs so that, if the
+    current instance closes, a fresh one is spawned immediately.
+    """
+    try:
+        import os, sys, subprocess
+
+        # Build the command to spawn a fresh launcher process
+        if getattr(sys, "frozen", False):
+            # PyInstaller EXE – sys.executable *is* the launcher
+            exe = sys.executable
+            cmd = [exe]
+        else:
+            # Running via python UWPLauncher.py
+            exe = os.path.abspath(sys.argv[0])
+            cmd = [sys.executable, exe]
+
+        subprocess.Popen(cmd, cwd=os.getcwd())
+    except Exception as e:
+        # Don't let restart failures crash the app
+        try:
+            print(f"[plugins] failed to restart launcher: {e}")
+        except Exception:
+            pass
+
+    # Now shut down the current Qt application as cleanly as possible
+    try:
+        from PyQt6 import QtWidgets as _QtWidgets  # type: ignore
+        app = _QtWidgets.QApplication.instance()
+        if app is not None:
+            app.quit()
+        else:
+            import sys as _sys
+            _sys.exit(0)
+    except Exception:
+        try:
+            import sys as _sys
+            _sys.exit(0)
+        except Exception:
+            pass
+
+
+class PluginManagerDialog(QtWidgets.QDialog):
+    """Simple plugin manager to enable/disable launcher plugins and add/remove .py files."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Plugin Manager")
+        self.setModal(True)
+        self._parent = parent
+
+        # Resolve settings + disabled list from the main window if available
+        self._settings = {}
+        self._disabled = set()
+        try:
+            if parent is not None and hasattr(parent, "settings"):
+                s = getattr(parent, "settings", {}) or {}
+                if isinstance(s, dict):
+                    self._settings = s
+                    for name in s.get("plugins_disabled", []):
+                        self._disabled.add(str(name).strip())
+        except Exception:
+            self._settings = {}
+            self._disabled = set()
+
+        # Determine the primary scripts directory we will manage
+        base_dir = None
+        try:
+            for candidate in _plugin_search_dirs():
+                if candidate.name == PLUGIN_PACKAGE_NAME:
+                    base_dir = candidate
+                    break
+        except Exception:
+            base_dir = None
+
+        if base_dir is None:
+            try:
+                base_dir = _app_root() / PLUGIN_PACKAGE_NAME
+                base_dir.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                base_dir = None
+
+        self._scripts_dir = base_dir
+
+        layout = QtWidgets.QVBoxLayout(self)
+
+        # Info label
+        info = QtWidgets.QLabel(
+            "Plugins are simple .py files in the 'scripts' folder.\n"
+            "Uncheck a plugin to disable it. Changes apply next time you start the launcher."
+        )
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        # List of plugins
+        self.list = QtWidgets.QListWidget()
+        layout.addWidget(self.list, 1)
+
+        # Buttons row
+        btn_row = QtWidgets.QHBoxLayout()
+        self.btn_add = QtWidgets.QPushButton("Add plugin…")
+        self.btn_remove = QtWidgets.QPushButton("Remove selected")
+        btn_row.addWidget(self.btn_add)
+        btn_row.addWidget(self.btn_remove)
+        btn_row.addStretch(1)
+        layout.addLayout(btn_row)
+
+        # OK/Cancel
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.StandardButton.Ok
+            | QtWidgets.QDialogButtonBox.StandardButton.Cancel
+        )
+        layout.addWidget(buttons)
+
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        self.btn_add.clicked.connect(self._on_add)
+        self.btn_remove.clicked.connect(self._on_remove)
+
+        self._populate()
+
+    def _populate(self):
+        """Populate list widget from current scripts directory + metadata."""
+        self.list.clear()
+        paths = {}
+        try:
+            if self._scripts_dir is not None and self._scripts_dir.is_dir():
+                for p in sorted(self._scripts_dir.glob("*.py")):
+                    if p.name.startswith("_"):
+                        continue
+                    stem = p.stem
+                    paths[stem] = p
+        except Exception:
+            paths = {}
+
+        # Fall back to metadata on the parent window (in case plugins live elsewhere)
+        try:
+            if not paths and self._parent is not None and hasattr(self._parent, "_plugin_meta"):
+                for meta in getattr(self._parent, "_plugin_meta", []) or []:
+                    stem = str(meta.get("name", "")).strip()
+                    p = meta.get("path")
+                    if stem:
+                        paths[stem] = Path(p) if p else None
+        except Exception:
+            pass
+
+        for stem, path in sorted(paths.items(), key=lambda kv: kv[0].lower()):
+            item = QtWidgets.QListWidgetItem(stem)
+            item.setFlags(item.flags() | QtCore.Qt.ItemFlag.ItemIsUserCheckable | QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEnabled)
+            if stem in self._disabled:
+                item.setCheckState(QtCore.Qt.CheckState.Unchecked)
+            else:
+                item.setCheckState(QtCore.Qt.CheckState.Checked)
+            if path is not None:
+                item.setData(QtCore.Qt.ItemDataRole.UserRole, str(path))
+            self.list.addItem(item)
+
+    def _on_add(self):
+        """Allow user to pick a .py file and copy it into scripts folder."""
+        try:
+            if self._scripts_dir is None:
+                QtWidgets.QMessageBox.warning(self, "Plugin Manager", "Scripts folder could not be created.")
+                return
+            self._scripts_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            QtWidgets.QMessageBox.warning(self, "Plugin Manager", f"Failed to prepare scripts folder: {e}")
+            return
+
+        try:
+            path, _ = QtWidgets.QFileDialog.getOpenFileName(
+                self,
+                "Select plugin (.py)",
+                "",
+                "Python files (*.py);;All files (*)",
+            )
+        except Exception:
+            return
+
+        if not path:
+            return
+
+        try:
+            src = Path(path)
+            stem = src.stem
+            dst = self._scripts_dir / src.name
+            # If destination exists, overwrite
+            try:
+                if dst.exists():
+                    dst.unlink()
+            except Exception:
+                pass
+            try:
+                import shutil as _shutil
+                _shutil.copy2(src, dst)
+            except Exception:
+                # best-effort simple copy
+                with open(src, "rb") as f_in, open(dst, "wb") as f_out:
+                    f_out.write(f_in.read())
+
+            # If we previously had this plugin disabled/enabled, keep that state
+            if stem not in self._disabled:
+                # Enabled by default
+                pass
+
+            # Refresh list
+            self._populate()
+
+            # Offer to restart so the new plugin is actually loaded.
+            try:
+                btn = QtWidgets.QMessageBox.question(
+                    self,
+                    "Plugin installed",
+                    "Plugin installed.\n\nRestart UWPLauncher now to load plugins?",
+                    QtWidgets.QMessageBox.StandardButton.Yes
+                    | QtWidgets.QMessageBox.StandardButton.No,
+                )
+                if btn == QtWidgets.QMessageBox.StandardButton.Yes:
+                    _restart_launcher_now()
+            except Exception:
+                # Even if the dialog fails for some reason, don't crash.
+                pass
+
+        except Exception as e:
+            QtWidgets.QMessageBox.warning(self, "Plugin Manager", f"Failed to add plugin: {e}")
+
+    def _on_remove(self):
+        """Remove the selected plugin file from disk (if it lives in scripts folder)."""
+        item = self.list.currentItem()
+        if not item:
+            return
+        stem = item.text()
+        path = item.data(QtCore.Qt.ItemDataRole.UserRole)
+        if not path:
+            # Nothing we can safely remove
+            QtWidgets.QMessageBox.information(self, "Plugin Manager", "This plugin is not managed from the scripts folder.")
+            return
+        try:
+            p = Path(path)
+        except Exception:
+            p = None
+        if not p or not p.is_file():
+            QtWidgets.QMessageBox.information(self, "Plugin Manager", "Plugin file not found on disk.")
+            return
+
+        confirm = QtWidgets.QMessageBox.question(
+            self,
+            "Remove plugin",
+            f"Remove plugin '{stem}' from the scripts folder?",
+        )
+        if confirm != QtWidgets.QMessageBox.StandardButton.Yes:
+            return
+        try:
+            p.unlink()
+        except Exception as e:
+            QtWidgets.QMessageBox.warning(self, "Plugin Manager", f"Failed to remove plugin: {e}")
+            return
+        # Also forget any disabled state for it
+        try:
+            self._disabled.discard(stem)
+        except Exception:
+            pass
+        self._populate()
+
+    def accept(self):
+        """Persist disabled list back into launcher's settings dict."""
+        disabled = []
+        try:
+            for i in range(self.list.count()):
+                item = self.list.item(i)
+                if item.checkState() == QtCore.Qt.CheckState.Unchecked:
+                    disabled.append(item.text())
+        except Exception:
+            disabled = []
+
+        try:
+            if isinstance(self._settings, dict):
+                self._settings["plugins_disabled"] = disabled
+                try:
+                    # Persist updated settings to disk using the global helper
+                    save_settings(self._settings)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # Let the user know they may need to restart for changes to fully apply
+        try:
+            if self._parent is not None and hasattr(self._parent, "_show_toast"):
+                self._parent._show_toast("Plugin settings updated. Restart launcher to apply.", "info")
+        except Exception:
+            pass
+
+        super().accept()
+
+    # ============= Worker =============
 
 class Worker(QtCore.QObject):
     progress = QtCore.pyqtSignal(str)
@@ -2395,6 +2879,18 @@ class Main(QtWidgets.QWidget):
             _launch_friends_popup_external()
         except Exception as e:
             self._append(f"[friends] failed to launch popup: {e}")
+    def _open_plugin_manager(self):
+        """Open the Plugin Manager dialog from the sidebar button."""
+        try:
+            dlg = PluginManagerDialog(self)
+            dlg.exec()
+        except Exception as e:
+            try:
+                if hasattr(self, "_append"):
+                    self._append(f"[plugins] failed to open Plugin Manager: {e}")
+            except Exception:
+                pass
+
     def __init__(self):
         super().__init__()
 
@@ -2542,6 +3038,14 @@ class Main(QtWidgets.QWidget):
         self.btn_nav_log.setToolTip("Log")
         self.btn_nav_log.setAutoRaise(True)
         sidebar.addWidget(self.btn_nav_log)
+
+
+        # Plugin Manager button
+        self.btn_nav_plugins = QtWidgets.QToolButton()
+        self.btn_nav_plugins.setText("🧩")
+        self.btn_nav_plugins.setToolTip("Plugin Manager")
+        self.btn_nav_plugins.setAutoRaise(True)
+        sidebar.addWidget(self.btn_nav_plugins)
 
         sidebar.addStretch(1)
 
@@ -2865,6 +3369,13 @@ class Main(QtWidgets.QWidget):
         try:
             # Log viewer from sidebar
             self.btn_nav_log.clicked.connect(self._show_log_viewer)
+        except Exception:
+            pass
+
+
+        try:
+            # Plugin Manager from sidebar
+            self.btn_nav_plugins.clicked.connect(self._open_plugin_manager)
         except Exception:
             pass
 
@@ -4266,9 +4777,29 @@ def _open_friends(self):
     except Exception as e:
         self._append(f"[friends] failed to launch popup: {e}")
 
+
+def _open_plugin_manager(self):
+    """Open the Plugin Manager dialog from the sidebar button."""
+    try:
+        dlg = PluginManagerDialog(self)
+        dlg.exec()
+    except Exception as e:
+        try:
+            if hasattr(self, "_append"):
+                self._append(f"[plugins] failed to open Plugin Manager: {e}")
+        except Exception:
+            pass
+
+
+
 def main():
     app = QtWidgets.QApplication(sys.argv)
     w = Main()
+    # Load plugins from scripts/ folder (best-effort; never crashes the app)
+    try:
+        _load_launcher_plugins(w)
+    except Exception:
+        pass
     w.show()
     sys.exit(app.exec())
 
