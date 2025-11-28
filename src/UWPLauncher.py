@@ -525,7 +525,7 @@ from pathlib import Path
 
 # === App version & GitHub update config (ADD-ONLY) ===
 # Bump APP_VERSION whenever you ship a new build.
-APP_VERSION = "3.0.8"
+APP_VERSION = "3.0.9"
 
 # GitHub repo for UWPLauncher updates.
 GITHUB_REPO = "Qvyn/UWPLauncher"
@@ -3439,6 +3439,64 @@ class Main(QtWidgets.QWidget):
             card_w = cover_w + 8  # 4px margins on each side
             card.setFixedWidth(card_w)
 
+            # Quick-action row (Play / Edit / Folder), initially hidden.
+            actions_row = _QtWidgets.QHBoxLayout()
+            actions_row.setContentsMargins(0, 0, 0, 0)
+            actions_row.setSpacing(4)
+            actions_widget = _QtWidgets.QWidget(card)
+            actions_widget.setLayout(actions_row)
+            actions_widget.setVisible(False)
+
+            btn_play = _QtWidgets.QToolButton(actions_widget)
+            btn_play.setText("Play")
+            btn_play.setToolTip("Launch this game")
+
+            btn_edit = _QtWidgets.QToolButton(actions_widget)
+            btn_edit.setText("Edit")
+            btn_edit.setToolTip("Edit this game's options")
+
+            btn_folder = _QtWidgets.QToolButton(actions_widget)
+            btn_folder.setText("Folder")
+            btn_folder.setToolTip("Open the install folder for this game")
+
+            actions_row.addWidget(btn_play)
+            actions_row.addWidget(btn_edit)
+            actions_row.addWidget(btn_folder)
+            # Optional Steam playtime label (shown on hover alongside quick actions).
+            try:
+                playtime_label = _QtWidgets.QLabel(actions_widget)
+                txt = ""
+                gg = g  # use the game dict for this card directly
+                if isinstance(gg, dict):
+                    minutes = gg.get("steam_playtime_minutes") or 0
+                    hours = gg.get("steam_playtime_hours")
+                    try:
+                        minutes_val = int(minutes)
+                    except Exception:
+                        minutes_val = 0
+                    # Always show if we have any stored minutes, even if 0, so it's obvious the wiring works.
+                    if minutes_val >= 0:
+                        if hours is None:
+                            try:
+                                hours = round(minutes_val / 60.0, 2)
+                            except Exception:
+                                try:
+                                    hours = minutes_val // 60
+                                except Exception:
+                                    hours = 0
+                        txt = f"Steam: {hours} hrs"
+                playtime_label.setText(txt)
+                playtime_label.setAlignment(
+                    QtCore.Qt.AlignmentFlag.AlignRight | QtCore.Qt.AlignmentFlag.AlignVCenter
+                )
+                playtime_label.setStyleSheet("font-size: 10px; color: #A0A0A0;")
+                actions_row.addStretch(1)
+                actions_row.addWidget(playtime_label)
+            except Exception:
+                pass
+
+
+
             art_path = self._art_path_for_game(g)
             pix = None
             if art_path:
@@ -3472,6 +3530,57 @@ class Main(QtWidgets.QWidget):
 
             v.addWidget(cover)
             v.addWidget(title)
+            v.addWidget(actions_widget)
+
+            # Keep a reference to the quick-action widget on the card so we can
+            # show/hide it on hover.
+            try:
+                card._hover_actions = actions_widget
+            except Exception:
+                pass
+
+            # Wire quick action buttons for this specific card.
+            def _play_from_hover(_checked=False, i=idx):
+                """Quick 'Play' button from hover row: select this game then launch it immediately."""
+                try:
+                    self._on_game_card_clicked(i)
+                except Exception:
+                    pass
+                try:
+                    self._on_launch()
+                except Exception:
+                    pass
+
+            def _edit_from_hover(_checked=False, i=idx):
+                try:
+                    if hasattr(self, "selector") and self.selector is not None:
+                        if 0 <= i < self.selector.count():
+                            self.selector.setCurrentIndex(i)
+                except Exception:
+                    pass
+                try:
+                    self._on_edit()
+                except Exception:
+                    pass
+
+            def _folder_from_hover(_checked=False, i=idx):
+                try:
+                    self._open_game_install_folder_for_index(i)
+                except Exception:
+                    pass
+
+            try:
+                btn_play.clicked.connect(_play_from_hover)
+            except Exception:
+                pass
+            try:
+                btn_edit.clicked.connect(_edit_from_hover)
+            except Exception:
+                pass
+            try:
+                btn_folder.clicked.connect(_folder_from_hover)
+            except Exception:
+                pass
 
             # Remember the cover widget so we can resize it later when the
             # slider moves, without rebuilding the whole grid.
@@ -3480,9 +3589,115 @@ class Main(QtWidgets.QWidget):
             except Exception:
                 pass
 
-            def _clicked(ev, index=idx):
-                self._on_game_card_clicked(index)
+            # Wire click + hover behaviors onto the card so it feels interactive.
+            def _clicked(ev, index=idx, _card=card):
+                try:
+                    # Right-click opens a proper context menu for this card.
+                    if ev.button() == QtCore.Qt.MouseButton.RightButton:
+                        try:
+                            menu = _QtWidgets.QMenu(_card)
+                        except Exception:
+                            menu = None
+                        if menu is not None:
+                            try:
+                                act_play = menu.addAction("Play")
+                                act_edit = menu.addAction("Edit options…")
+                                act_folder = menu.addAction("Open install folder")
+                                act_remove = menu.addAction("Remove from launcher")
+                            except Exception:
+                                act_play = act_edit = act_folder = act_remove = None
+
+                            chosen = menu.exec(ev.globalPos())
+                            try:
+                                if chosen is act_play:
+                                    # Same as left-click behavior
+                                    self._on_game_card_clicked(index)
+                                elif chosen is act_edit:
+                                    # Select in combo and reuse existing editor
+                                    try:
+                                        if hasattr(self, "selector") and self.selector is not None:
+                                            if 0 <= index < self.selector.count():
+                                                self.selector.setCurrentIndex(index)
+                                    except Exception:
+                                        pass
+                                    try:
+                                        self._on_edit()
+                                    except Exception:
+                                        pass
+                                elif chosen is act_folder:
+                                    try:
+                                        self._open_game_install_folder_for_index(index)
+                                    except Exception:
+                                        pass
+                                elif chosen is act_remove:
+                                    # Select in combo and reuse existing delete logic
+                                    try:
+                                        if hasattr(self, "selector") and self.selector is not None:
+                                            if 0 <= index < self.selector.count():
+                                                self.selector.setCurrentIndex(index)
+                                    except Exception:
+                                        pass
+                                    try:
+                                        self._on_del()
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                pass
+                        return
+
+                    # Left-click (or anything else) keeps the original behavior: select the card.
+                    self._on_game_card_clicked(index)
+                except Exception:
+                    # As a last resort, fall back to the original click behavior.
+                    try:
+                        self._on_game_card_clicked(index)
+                    except Exception:
+                        pass
+
             card.mousePressEvent = _clicked
+
+            # Simple hover card on enter/leave to show extra details,
+            # and reveal the quick-action row.
+            def _enter(ev, game=g, _card=card):
+                try:
+                    pos = _card.mapToGlobal(_card.rect().bottomRight())
+                except Exception:
+                    pos = None
+                try:
+                    self._show_hover_card_for_game(game, pos)
+                except Exception:
+                    pass
+                # Show quick-action row when hovered.
+                try:
+                    actions = getattr(_card, "_hover_actions", None)
+                    if actions is not None:
+                        actions.setVisible(True)
+                except Exception:
+                    pass
+                try:
+                    _QtWidgets.QFrame.enterEvent(_card, ev)
+                except Exception:
+                    pass
+
+            def _leave(ev, game=g, _card=card):
+                try:
+                    self._hide_hover_card()
+                except Exception:
+                    pass
+                # Hide quick-action row when leaving.
+                try:
+                    actions = getattr(_card, "_hover_actions", None)
+                    if actions is not None:
+                        actions.setVisible(False)
+                except Exception:
+                    pass
+                try:
+                    _QtWidgets.QFrame.leaveEvent(_card, ev)
+                except Exception:
+                    pass
+
+            card.enterEvent = _enter
+            card.leaveEvent = _leave
 
             layout.addWidget(card, row, col)
             self._card_widgets.append(card)
@@ -3561,6 +3776,150 @@ class Main(QtWidgets.QWidget):
         except Exception:
             pass
 
+    
+    def _ensure_hover_card(self):
+        """Lazy-create the floating hover card used by the game grid."""
+        try:
+            from PyQt6 import QtWidgets as _QtWidgets, QtCore as _QtCore
+        except Exception:
+            return None
+        card = getattr(self, "_hover_card", None)
+        if card is None:
+            card = _QtWidgets.QFrame(self)
+            card.setObjectName("gameHoverCard")
+            try:
+                card.setWindowFlag(_QtCore.Qt.WindowType.ToolTip, True)
+            except Exception:
+                # Older Qt builds may not support setting this flag explicitly
+                pass
+            try:
+                card.setAttribute(_QtCore.Qt.WidgetAttribute.WA_StyledBackground, True)
+            except Exception:
+                pass
+            layout = _QtWidgets.QVBoxLayout(card)
+            layout.setContentsMargins(8, 8, 8, 8)
+            layout.setSpacing(4)
+            title = _QtWidgets.QLabel()
+            title.setObjectName("hoverTitle")
+            title.setWordWrap(True)
+            subtitle = _QtWidgets.QLabel()
+            subtitle.setObjectName("hoverSubtitle")
+            subtitle.setWordWrap(True)
+            meta = _QtWidgets.QLabel()
+            meta.setObjectName("hoverMeta")
+            meta.setWordWrap(True)
+            layout.addWidget(title)
+            layout.addWidget(subtitle)
+            layout.addWidget(meta)
+            self._hover_card = card
+            self._hover_title = title
+            self._hover_subtitle = subtitle
+            self._hover_meta = meta
+            try:
+                card.setStyleSheet(
+                    "QFrame#gameHoverCard {"
+                    " background-color: #202020;"
+                    " color: #ffffff;"
+                    " border-radius: 8px;"
+                    " border: 1px solid #4caf50;"
+                    "}"
+                    "QLabel#hoverTitle { font-weight: bold; }"
+                    "QLabel#hoverMeta { color: #aaaaaa; font-size: 9pt; }"
+                )
+            except Exception:
+                pass
+        return card
+
+    def _show_hover_card_for_game(self, game: dict | None, global_pos):
+        """Populate + show hover card near the given global position."""
+        card = self._ensure_hover_card()
+        if card is None or not game:
+            return
+        try:
+            name = str(game.get("name", "") or "").strip() or "(unnamed)"
+        except Exception:
+            name = "(unnamed)"
+        try:
+            exe_path = str(game.get("exe", "") or "").strip()
+        except Exception:
+            exe_path = ""
+        try:
+            exe_name = str(game.get("exe_name", "") or "").strip()
+        except Exception:
+            exe_name = ""
+        try:
+            aumid = str(game.get("aumid", "") or "").strip()
+        except Exception:
+            aumid = ""
+        lines = []
+        if exe_path:
+            lines.append(exe_path)
+        elif exe_name:
+            lines.append(exe_name)
+        if aumid:
+            lines.append(aumid)
+        subtitle = "\n".join(lines)
+
+        try:
+            use_flags = bool(game.get("use_flags", True))
+        except Exception:
+            use_flags = False
+        try:
+            high = bool(game.get("high_priority", True))
+        except Exception:
+            high = False
+        try:
+            aff = bool(game.get("apply_affinity", True))
+        except Exception:
+            aff = False
+        meta_bits = [
+            f"Use Flags: {'on' if use_flags else 'off'}",
+            f"High Priority: {'on' if high else 'off'}",
+            f"Affinity: {'on' if aff else 'off'}",
+        ]
+        source = str(game.get("source", "") or "").strip()
+        if source:
+            meta_bits.append(f"Source: {source}")
+        meta = "  •  ".join(meta_bits)
+
+        try:
+            self._hover_title.setText(name)
+        except Exception:
+            pass
+        try:
+            self._hover_subtitle.setText(subtitle)
+            self._hover_subtitle.setVisible(bool(subtitle))
+        except Exception:
+            pass
+        try:
+            self._hover_meta.setText(meta)
+        except Exception:
+            pass
+
+        try:
+            card.adjustSize()
+            if global_pos is not None:
+                x = max(0, int(global_pos.x()) + 12)
+                y = max(0, int(global_pos.y()) + 12)
+                card.move(x, y)
+            card.show()
+            card.raise_()
+        except Exception:
+            try:
+                card.show()
+            except Exception:
+                pass
+
+    def _hide_hover_card(self):
+        """Hide the floating hover card, if it exists."""
+        card = getattr(self, "_hover_card", None)
+        if card is None:
+            return
+        try:
+            card.hide()
+        except Exception:
+            pass
+
     def _on_game_card_clicked(self, index:int):
         """When user clicks a card, select that game in the underlying combo and update details."""
         try:
@@ -3609,6 +3968,49 @@ class Main(QtWidgets.QWidget):
             self.games.pop(idx)
             save_games(self.games)
             self._refresh_selector()
+
+
+    def _open_game_install_folder_for_index(self, index:int):
+        """Best-effort helper to open the install folder for a game by grid index."""
+        try:
+            games = getattr(self, "games", []) or []
+        except Exception:
+            games = []
+        if not games or index < 0 or index >= len(games):
+            return
+        try:
+            g = games[index]
+        except Exception:
+            return
+        try:
+            exe_path = str(g.get("exe", "") or "").strip()
+        except Exception:
+            exe_path = ""
+        if not exe_path:
+            # No explicit path configured; nothing to open.
+            try:
+                if hasattr(self, "_show_toast"):
+                    self._show_toast("No EXE path configured for this game.", "warn")
+            except Exception:
+                pass
+            return
+        try:
+            from pathlib import Path as _Path
+            import os as _os, webbrowser as _webbrowser
+            p = _Path(exe_path)
+            if p.is_file():
+                target_dir = p.parent
+            else:
+                target_dir = p if p.exists() else p.parent
+            try:
+                _os.startfile(str(target_dir))
+            except Exception:
+                try:
+                    _webbrowser.open(str(target_dir))
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
     # ---------- UWP Sync ----------
     def _on_sync(self):
@@ -4013,6 +4415,90 @@ def _NONUWP_act_sign_in(self):
         QtWidgets.QMessageBox.warning(self, "Steam Sign-In", str(e))
 
 
+
+
+
+def _NONUWP_apply_steam_playtimes(self, games_src):
+    """ADD-ONLY: Merge Steam playtime + last played into existing game entries.
+
+    This reads playtime data from the Steam-owned-games payload and writes it
+    into matching entries in ``self.games`` without changing any other fields.
+
+    Stored fields (if available):
+      - ``steam_playtime_minutes``: total minutes from Steam
+      - ``steam_playtime_hours``: derived hours (float, rounded to 2 decimals)
+      - ``steam_last_played``: raw Unix timestamp from Steam (rtime_last_played)
+    """
+    try:
+        if not isinstance(games_src, list):
+            return
+        games = getattr(self, "games", None)
+        if not isinstance(games, list):
+            return
+
+        debug_printed = 0
+
+        for g in games_src:
+            if not isinstance(g, dict):
+                continue
+            appid = str(g.get("appid", "")).strip()
+            if not appid:
+                continue
+
+            # Extract playtime + last-played from Steam payload.
+            # Prefer total, but fall back to OS-specific counters if present.
+            pt_minutes = 0
+            try:
+                for key in (
+                    "playtime_forever",
+                    "playtime_windows_forever",
+                    "playtime_linux_forever",
+                    "playtime_mac_forever",
+                ):
+                    val = g.get(key)
+                    if val:
+                        pt_minutes = int(val)
+                        break
+            except Exception:
+                pt_minutes = 0
+
+            try:
+                last_played = int(g.get("rtime_last_played", 0) or 0)
+            except Exception:
+                last_played = 0
+
+            # Even if both are zero, still write the fields once so it's obvious
+            # that the wiring is working; the label logic will then show 0.0 hrs.
+            # This also means if Steam is actually returning zeros due to privacy
+            # settings, you'll at least see that something ran.
+            try:
+                if debug_printed < 5:
+                    debug_printed += 1
+                    print(f"[STEAM-PT] appid {appid} -> minutes={pt_minutes}, last_played={last_played}")
+            except Exception:
+                pass
+
+            # Update all matching entries with the same appid.
+            for gg in games:
+                try:
+                    if not isinstance(gg, dict):
+                        continue
+                    if str(gg.get("appid", "")).strip() != appid:
+                        continue
+                    gg["steam_playtime_minutes"] = pt_minutes
+                    try:
+                        gg["steam_playtime_hours"] = round(pt_minutes / 60.0, 2)
+                    except Exception:
+                        # Fallback: integer hours
+                        gg["steam_playtime_hours"] = pt_minutes // 60 if pt_minutes > 0 else 0
+                    if last_played > 0:
+                        gg["steam_last_played"] = last_played
+                except Exception:
+                    # Best-effort only; never break the whole sync.
+                    continue
+    except Exception:
+        # Completely non-critical helper; swallow everything.
+        pass
 def _NONUWP_act_sync(self):
     from PyQt6 import QtWidgets
     try:
@@ -4094,7 +4580,14 @@ def _NONUWP_act_sync(self):
                 except Exception:
                     pass
 
-        # ADD-ONLY: ensure Steam artwork is cached for all Steam games after sync
+        
+        # ADD-ONLY: merge Steam playtime info into matching games (no UI changes).
+        try:
+            _NONUWP_apply_steam_playtimes(self, games_src)
+        except Exception:
+            pass
+
+# ADD-ONLY: ensure Steam artwork is cached for all Steam games after sync
         # Shows a small progress dialog so the UI doesn't feel frozen while images download.
         try:
             try:
@@ -4220,6 +4713,12 @@ def _NONUWP_act_sync(self):
                 self._refresh_selector()
             except Exception:
                 pass
+
+        # Rebuild game grid so hover cards / labels pick up updated Steam playtimes.
+        try:
+            self._rebuild_game_grid()
+        except Exception:
+            pass
 
         if res is not None:
             QtWidgets.QMessageBox.information(self, "Sync Steam Library", str(res))

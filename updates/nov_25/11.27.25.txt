@@ -1,0 +1,4 @@
+added hover cards when hovering over games 
+users can now right click to edit game options in game grid
+users can now launch their games with the "play" button during the hover card events
+added steam playtime (as accurate as possible)
