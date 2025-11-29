@@ -1,18 +1,5 @@
 """
-Deep Steam Integration plugin for UWPLauncher (v3).
-
-What it does now:
-- Adds "Steam → Show game info…" to the Actions / menu_actions menu.
-- For the *currently selected game* (must have an "appid" in games.json),
-  it calls public Steam endpoints and shows:
-    * Name + type
-    * Release date
-    * Price + discount
-    * Live user review summary (Steam reviews)
-    * Live current player count (Steam concurrent players)
-    * Genres / categories
-    * Short description
-    * (If available) Xbox friends currently playing this title, from FriendsDock cache
+Deep Steam Integration plugin for UWPLauncher.
 
 No Steam API key required (uses Store + keyless Web API).
 """
