@@ -1,0 +1,290 @@
+How the plugin system works
+
+On startup, UWPLauncher scans the scripts/ folder for .py files.
+
+Each plugin is loaded in its own Python module.
+
+The launcher calls a special function inside each plugin:
+
+register_plugin(window) (preferred)
+
+or register(window) / init_plugin(window) as compatibility aliases.
+
+The plugin returns a small metadata dict so the launcher knows:
+
+plugin name
+
+version
+
+description
+
+(optional) error message if something went wrong.
+
+The Plugin Manager (gear icon → Plugin Manager) lets you:
+
+See all .py plugins in the scripts/ folder.
+
+Enable / disable them (via checkboxes).
+
+Add / remove .py plugin files. 
+
+UWPLauncher
+
+Changes take effect the next time you restart UWPLauncher.
+
+
+
+Where to put plugin files
+
+Locate your UWPLauncher folder (where UWPLauncher.exe / UWPLauncher.py lives).
+
+Inside it, there should be a scripts folder:
+
+If it doesn’t exist yet, the Plugin Manager will create it.
+
+Drop your plugin file there, for example:
+
+UWPLauncher/
+├─ UWPLauncher.exe
+├─ UWPLauncher.py
+├─ scripts/
+│  ├─ deep_steam_integration.py
+│  ├─ steam_friends_plugin.py
+│  └─ my_cool_plugin.py   ← your file
+
+
+Then:
+
+Open the launcher
+
+Go to Plugin Manager
+
+Make sure your plugin is checked (enabled)
+
+
+
+Minimal plugin template
+
+The smallest useful plugin looks like this: **remove quotes**
+
+# my_cool_plugin.py
+
+"from __future__ import annotations
+
+PLUGIN_NAME = "MyCoolPlugin"
+PLUGIN_VERSION = "1.0.0"
+PLUGIN_DESCRIPTION = "Example plugin that adds a menu item and shows a toast."
+
+try:
+    from PyQt6 import QtWidgets
+except Exception:
+    QtWidgets = None
+
+
+def register_plugin(window):
+    """
+    Called once at startup with the main window.
+
+    'window' is the running UWPLauncher main window. You can:
+      - add menus / actions to window.menu_actions
+      - call window._show_toast(msg, level)  (best-effort)
+      - inspect window.games, window.selector, etc.
+    """
+    if QtWidgets is None:
+        return {
+            "name": PLUGIN_NAME,
+            "version": PLUGIN_VERSION,
+            "description": PLUGIN_DESCRIPTION,
+            "error": "PyQt6 not available",
+        }
+
+    # 1) Find the main “Actions” menu the launcher uses
+    menu = getattr(window, "menu_actions", None)
+    if menu is None or not isinstance(menu, QtWidgets.QMenu):
+        return {
+            "name": PLUGIN_NAME,
+            "version": PLUGIN_VERSION,
+            "description": PLUGIN_DESCRIPTION,
+            "error": "menu_actions QMenu not found on window",
+        }
+
+    # 2) Add a new menu item under Actions
+    action = menu.addAction("Say hello")
+
+    # 3) Wire it up
+    def on_triggered():
+        # Safe toast
+        try:
+            if hasattr(window, "_show_toast"):
+                window._show_toast("Hello from MyCoolPlugin!", "info")
+        except Exception:
+            pass
+
+        # Fallback message box (in case toast is missing or fails)
+        QtWidgets.QMessageBox.information(
+            window,
+            "MyCoolPlugin",
+            "Hello from MyCoolPlugin!",
+        )
+
+    action.triggered.connect(on_triggered)
+
+    # 4) Return metadata so the Plugin Manager can show details
+    return {
+        "name": PLUGIN_NAME,
+        "version": PLUGIN_VERSION,
+        "description": PLUGIN_DESCRIPTION,
+    }
+
+
+# Optional compatibility aliases (not required, but allowed)
+def register(window):      # pragma: no cover
+    return register_plugin(window)
+
+
+def init_plugin(window):   # pragma: no cover
+    return register_plugin(window) Minimal plugin template
+The smallest useful plugin looks like this:
+
+# my_cool_plugin.py
+
+from __future__ import annotations
+
+PLUGIN_NAME = "MyCoolPlugin"
+PLUGIN_VERSION = "1.0.0"
+PLUGIN_DESCRIPTION = "Example plugin that adds a menu item and shows a toast."
+
+try:
+    from PyQt6 import QtWidgets
+except Exception:
+    QtWidgets = None
+
+
+def register_plugin(window):
+    """
+    Called once at startup with the main window.
+
+    'window' is the running UWPLauncher main window. You can:
+      - add menus / actions to window.menu_actions
+      - call window._show_toast(msg, level)  (best-effort)
+      - inspect window.games, window.selector, etc.
+    """
+    if QtWidgets is None:
+        return {
+            "name": PLUGIN_NAME,
+            "version": PLUGIN_VERSION,
+            "description": PLUGIN_DESCRIPTION,
+            "error": "PyQt6 not available",
+        }
+
+    # 1) Find the main “Actions” menu the launcher uses
+    menu = getattr(window, "menu_actions", None)
+    if menu is None or not isinstance(menu, QtWidgets.QMenu):
+        return {
+            "name": PLUGIN_NAME,
+            "version": PLUGIN_VERSION,
+            "description": PLUGIN_DESCRIPTION,
+            "error": "menu_actions QMenu not found on window",
+        }
+
+    # 2) Add a new menu item under Actions
+    action = menu.addAction("Say hello")
+
+    # 3) Wire it up
+    def on_triggered():
+        # Safe toast
+        try:
+            if hasattr(window, "_show_toast"):
+                window._show_toast("Hello from MyCoolPlugin!", "info")
+        except Exception:
+            pass
+
+        # Fallback message box (in case toast is missing or fails)
+        QtWidgets.QMessageBox.information(
+            window,
+            "MyCoolPlugin",
+            "Hello from MyCoolPlugin!",
+        )
+
+    action.triggered.connect(on_triggered)
+
+    # 4) Return metadata so the Plugin Manager can show details
+    return {
+        "name": PLUGIN_NAME,
+        "version": PLUGIN_VERSION,
+        "description": PLUGIN_DESCRIPTION,
+    }
+
+
+# Optional compatibility aliases (not required, but allowed)
+def register(window):      # pragma: no cover
+    return register_plugin(window)
+
+
+def init_plugin(window):   # pragma: no cover
+    return register_plugin(window)"
+
+
+
+Using external libraries
+
+The compiled UWPLauncher build already ships with some modules (examples: PyQt6, requests, msal, psutil, etc.).
+
+Important:
+
+If your plugin imports a library that the EXE doesn’t ship with, it will fail at runtime.
+
+For GitHub “basic plugins”, try to stick to:
+
+Python standard library
+
+Libraries you know UWPLauncher already uses (like PyQt6, requests).
+
+Example of defensive import:
+
+try:
+    import requests
+except Exception:
+    requests = None  # plugin will handle this
+
+
+Then, before using it:
+
+if requests is None:
+    QtWidgets.QMessageBox.warning(
+        window,
+        "My plugin",
+        "The 'requests' module is not available in this build."
+    )
+    return
+
+
+This is exactly how the built-in Deep Steam Integration plugin behaves.
+
+
+
+To keep things stable for everyone:
+
+Never crash the main UI
+
+Wrap risky calls in try/except.
+
+Use short network timeouts (e.g. timeout=5) when calling web APIs.
+
+Don’t block the UI thread for long
+
+Heavy work (like scanning lots of files) should be done in a background thread or with small chunks.
+
+For simple plugins, just keep things lightweight.
+
+Be defensive about attributes
+
+Always check with hasattr(window, "something") before using it.
+
+Assume some things might be missing in future builds.
+
+Namespacing
+
+Use a unique PLUGIN_NAME.
+
+Avoid clobbering global names or importing modules under very generic names.
