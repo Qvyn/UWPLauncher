@@ -1,3 +1,0 @@
-New in-app toast notifications for important events
-
-Safer and better-documented use of exec(compile(...)) in the embedded helper loader

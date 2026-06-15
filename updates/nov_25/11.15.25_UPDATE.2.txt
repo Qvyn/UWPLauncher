@@ -1,3 +1,0 @@
-UPDATED
-- moved "UPDATE" button to the widget bar and turned it into a functioning widget
-- Updater will now display the correct app version after downloading. 

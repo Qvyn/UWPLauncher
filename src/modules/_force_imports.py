@@ -1,0 +1,9 @@
+## auto-generated
+import _extra_pkg.__init__
+import _extra_pkg.launcher
+import _extra_pkg.ReloadMe_SETTINGS_MENU_FRIENDS_PATCH3_PATCHED_xblhelper_PATCH
+import _extra_pkg.xbl_auth_device_any
+import _extra_pkg.xbl_friends_dock_INLINE_v5_REFRESH_UI_v2_PATCHED
+import _extra_pkg.xbl_login_standalone_v3
+import _extra_pkg.xbl_profile_widget
+import _extra_pkg.xbl_signin_from_oauth_tokens

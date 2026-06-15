@@ -2363,13 +2363,14 @@ class Worker(QtCore.QObject):
     done = QtCore.pyqtSignal(bool, str)
     presence = QtCore.pyqtSignal(dict)  # {details,str; state,str}
 
-    def __init__(self, game, use_flags: bool, mask_hex: str, do_aff: bool, do_high: bool, extra_flags: list[str], discord_cfg: dict):
+    def __init__(self, game, use_flags: bool, mask_hex: str, do_aff: bool, do_high: bool, run_as_admin: bool, extra_flags: list[str], discord_cfg: dict):
         super().__init__()
         self.game = game
         self.use_flags = use_flags
         self.mask_hex = mask_hex
         self.do_aff = do_aff
         self.do_high = do_high
+        self.run_as_admin = bool(run_as_admin)
         self.extra_flags = extra_flags or []
         self.discord_cfg = discord_cfg or {}
 
@@ -2428,11 +2429,32 @@ class Worker(QtCore.QObject):
             if not aumid and exe_path:
                 argv = [exe_path] + flags
                 self.progress.emit("Launching (native): " + " ".join(argv))
-                try:
-                    subprocess.Popen(argv, close_fds=True)
-                except Exception as e:
-                    self.done.emit(False, f"Failed to launch game: {e}")
-                    return
+
+                # Optional elevation (Windows only). Note: for elevated launches, we don't
+                # get a process handle here; we detect the game process by name below.
+                if self.run_as_admin and os.name == "nt":
+                    try:
+                        import ctypes
+                        from ctypes import wintypes
+                        params = subprocess.list2cmdline(flags) if flags else ""
+                        cwd = os.path.dirname(exe_path) or None
+                        ShellExecuteW = ctypes.windll.shell32.ShellExecuteW
+                        ShellExecuteW.argtypes = [wintypes.HWND, wintypes.LPCWSTR, wintypes.LPCWSTR,
+                                                 wintypes.LPCWSTR, wintypes.LPCWSTR, ctypes.c_int]
+                        ShellExecuteW.restype = wintypes.HINSTANCE
+                        rc = ShellExecuteW(None, "runas", exe_path, params, cwd, 1)
+                        if rc <= 32:
+                            self.done.emit(False, "Run-as-admin failed or was cancelled (UAC).")
+                            return
+                    except Exception as e:
+                        self.done.emit(False, f"Run-as-admin failed: {e}")
+                        return
+                else:
+                    try:
+                        subprocess.Popen(argv, close_fds=True)
+                    except Exception as e:
+                        self.done.emit(False, f"Failed to launch game: {e}")
+                        return
 
                 # Determine which process name to watch
                 target_exe = exe_name or os.path.basename(exe_path)
@@ -3103,13 +3125,39 @@ class Main(QtWidgets.QWidget):
         toggles.addWidget(self.chk_priority)
         toggles.addWidget(self.chk_affinity)
         toggles.addWidget(self.chk_flags)
+        # Run-as-admin toggle (applies to non-UWP EXE launches only)
+        self.chk_admin = QtWidgets.QCheckBox("Admin")
+        self.chk_admin.setToolTip("Launch non-UWP EXEs with UAC elevation (Run as administrator).\nNot applicable to UWP AUMID titles or Steam URI launches.")
+        try:
+            self.chk_admin.setChecked(bool(self.settings.get("run_as_admin", False)))
+        except Exception:
+            pass
+        try:
+            self.chk_admin.stateChanged.connect(self._on_admin_toggle_changed)
+        except Exception:
+            pass
+        toggles.addWidget(self.chk_admin)
         toggles.addWidget(QtWidgets.QLabel("Mask:"))
+
         toggles.addWidget(self.le_mask)
         toggles.addStretch(1)
         toggles.addWidget(QtWidgets.QLabel("Game:"))
         self.selector = QtWidgets.QComboBox()
         toggles.addWidget(self.selector, 1)
         layout.addLayout(toggles)
+
+        # Search (filters library by title)
+        search_row = QtWidgets.QHBoxLayout()
+        search_row.addWidget(QtWidgets.QLabel("Search:"))
+        self.search_edit = QtWidgets.QLineEdit("")
+        self.search_edit.setPlaceholderText("Type to filter games by title…")
+        search_row.addWidget(self.search_edit, 1)
+        layout.addLayout(search_row)
+
+        try:
+            self.search_edit.textChanged.connect(self._on_search_changed)
+        except Exception:
+            pass
 
         # Extra flags per‑launch
         self.extra_flags = QtWidgets.QLineEdit("")
@@ -3782,13 +3830,45 @@ class Main(QtWidgets.QWidget):
             except Exception:
                 pass
 
-    def _refresh_selector(self):
+    def _refresh_selector(self, preserve_selection: bool = False):
+        prev = ""
+        try:
+            if preserve_selection:
+                prev = self.selector.currentText().strip()
+        except Exception:
+            prev = ""
+
+        query = ""
+        try:
+            if hasattr(self, "search_edit") and self.search_edit is not None:
+                query = self.search_edit.text().strip().lower()
+        except Exception:
+            query = ""
+
+        # Filter by query (title contains)
+        items = []
+        for g in (self.games or []):
+            name = str(g.get("name", "") or "").strip()
+            if not name:
+                continue
+            if query and query not in name.lower():
+                continue
+            items.append(name)
+
         self.selector.blockSignals(True)
         self.selector.clear()
-        self.selector.addItems([g.get("name","") for g in self.games])
+        self.selector.addItems(items)
         self.selector.blockSignals(False)
+
         if self.selector.count() > 0:
-            self.selector.setCurrentIndex(0)
+            if prev and prev in items:
+                try:
+                    self.selector.setCurrentIndex(items.index(prev))
+                except Exception:
+                    self.selector.setCurrentIndex(0)
+            else:
+                self.selector.setCurrentIndex(0)
+
         try:
             self._update_artwork_for_current_game()
         except Exception:
@@ -3796,6 +3876,21 @@ class Main(QtWidgets.QWidget):
         # Rebuild the game artwork grid when the library changes
         try:
             self._rebuild_game_grid()
+        except Exception:
+            pass
+
+    def _on_search_changed(self, _text: str = ""):
+        # Filter selector + grid by title as you type.
+        try:
+            self._refresh_selector(preserve_selection=True)
+        except Exception:
+            pass
+
+    def _on_admin_toggle_changed(self, _state: int = 0):
+        # Persist default so next launch starts with same setting
+        try:
+            self.settings["run_as_admin"] = bool(self.chk_admin.isChecked())
+            save_settings(self.settings)
         except Exception:
             pass
 
@@ -4594,6 +4689,7 @@ class Main(QtWidgets.QWidget):
         mask_hex = self.le_mask.text().strip() or g.get("mask_hex","")
         do_aff = self.chk_affinity.isChecked()
         do_high = self.chk_priority.isChecked()
+        run_as_admin = bool(getattr(self, 'chk_admin', None).isChecked()) if hasattr(self, 'chk_admin') else False
         extra = [x for x in self.extra_flags.text().strip().split() if x]
 
         # Log config (avoid touching UWPHook for non-UWP titles)
@@ -4616,7 +4712,7 @@ class Main(QtWidgets.QWidget):
         show_flags = (base_flags if use_flags else []) + extra
         self._append(f"Flags:   {' '.join(show_flags) if show_flags else '(none)'}")
         self._append(f"Mask:    {mask_hex or '(auto: all CPUs except CPU0)'}")
-        self._append(f"HighPrio:{do_high}  Affinity:{do_aff}")
+        self._append(f"HighPrio:{do_high}  Affinity:{do_aff}  Admin:{run_as_admin}")
 
         # Launch in thread
         self.btn.setDisabled(True)
@@ -4625,7 +4721,7 @@ class Main(QtWidgets.QWidget):
             "discord_details_tpl": self.settings.get("discord_details_tpl","{name}"),
             "discord_state_tpl": self.settings.get("discord_state_tpl","HighPrio={high}  Affinity={aff}  Flags={flags}"),
         }
-        self.worker = Worker(g, use_flags, mask_hex, do_aff, do_high, extra, discord_cfg)
+        self.worker = Worker(g, use_flags, mask_hex, do_aff, do_high, run_as_admin, extra, discord_cfg)
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
         self.worker.progress.connect(self._append)
